@@ -68,72 +68,39 @@ body {
   font-size: 0.9rem;
 }
 
-.controls {
+.review-context {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 10px 24px;
+  align-items: baseline;
+  gap: 6px 18px;
+  font-size: 0.9rem;
+  color: var(--muted);
 }
 
-.control {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
+.review-state {
+  padding: 1px 10px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 0.82rem;
+  color: var(--accent);
+  background: var(--accent-bg);
+  border: 1px solid var(--accent);
 }
 
-.control-label {
+.review-branches strong,
+.review-snapshot-label {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.review-none {
+  font-style: italic;
+}
+
+.snapshot-tag {
+  margin: 0 0 12px;
   color: var(--muted);
   font-size: 0.85rem;
-  font-weight: 600;
-}
-
-.control select {
-  max-width: min(560px, 70vw);
-  padding: 5px 8px;
-  font: inherit;
-  font-size: 0.9rem;
-  color: inherit;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-}
-
-.segmented {
-  display: inline-flex;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.segmented button {
-  padding: 5px 14px;
-  font: inherit;
-  font-size: 0.9rem;
-  color: inherit;
-  background: var(--panel);
-  border: none;
-  cursor: pointer;
-}
-
-.segmented button + button {
-  border-left: 1px solid var(--border);
-}
-
-.segmented button[aria-pressed='true'] {
-  color: #fff;
-  background: var(--accent);
-  font-weight: 600;
-}
-
-.view-caption {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.9rem;
-}
-
-.view-caption strong {
-  color: var(--text);
 }
 
 .notice {
@@ -144,10 +111,6 @@ body {
   border: 1px solid var(--notice);
   border-radius: 6px;
   font-size: 0.88rem;
-}
-
-.page-header .notice {
-  margin: 0;
 }
 
 .diagram-nav {

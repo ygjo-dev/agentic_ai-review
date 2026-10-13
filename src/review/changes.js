@@ -200,9 +200,9 @@ export function displayName(node) {
 
 const METADATA_FIELDS = ['title', 'summary', 'file', 'watch', 'presentation']
 
-// One entry per diagram of either version (selected version's order first),
+// One entry per diagram of either snapshot (After order first),
 // with its semantic diff and Before / After Mermaid, or the reason it has none.
-export function compareVersions(fromVersion, toVersion) {
+export function compareSnapshots(fromVersion, toVersion) {
   const beforeById = new Map(fromVersion.diagrams.map((diagram) => [diagram.id, diagram]))
   const afterIds = new Set(toVersion.diagrams.map((diagram) => diagram.id))
   const pairs = [

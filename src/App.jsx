@@ -2,55 +2,15 @@ import { useEffect, useMemo, useState } from 'react'
 import review from 'virtual:review-source'
 import ChangesView from './components/ChangesView.jsx'
 import MermaidDiagram from './components/MermaidDiagram.jsx'
-import { compareVersions } from './review/changes.js'
-import { readUrlState, urlFor } from './urlState.js'
+import { compareSnapshots } from './review/changes.js'
 
-const { project, versions, history: reviewHistory } = review
+// The build decides what is shown: a baseline (Before only) or one review
+// (Before = fork point, After = feature head). Nothing here picks another commit.
+const { project, review: context, before, after } = review
 
-function formatTime(timestamp) {
-  // Committer-local time as recorded in git, independent of the viewer's zone.
-  return timestamp.slice(0, 16).replace('T', ' ')
-}
-
-function versionLabel(version) {
-  if (version.workingTree) return `Working tree · ${version.subject}`
-  return `${formatTime(version.timestamp)} · ${version.shortSha} · ${version.subject}`
-}
-
-function shortName(version) {
-  return version.workingTree ? 'working tree' : version.shortSha
-}
-
-// Reads the view from the URL and writes it back in canonical form (full SHAs,
-// explicit compare), so the address bar is always a shareable link.
-function useUrlState() {
-  const [state, setState] = useState(() => readUrlState(versions, reviewHistory))
-
-  useEffect(() => {
-    // Rewrite only: the first read (with its notices) is already in state, and a
-    // second read here would see the canonical URL and drop those notices.
-    window.history.replaceState(null, '', urlFor(readUrlState(versions, reviewHistory)))
-    const sync = () => {
-      const next = readUrlState(versions, reviewHistory)
-      window.history.replaceState(null, '', urlFor(next))
-      setState(next)
-    }
-    window.addEventListener('popstate', sync)
-    window.addEventListener('hashchange', sync)
-    return () => {
-      window.removeEventListener('popstate', sync)
-      window.removeEventListener('hashchange', sync)
-    }
-  }, [])
-
-  const navigate = (change) => {
-    window.history.pushState(null, '', urlFor({ ...state, ...change }))
-    const next = readUrlState(versions, reviewHistory)
-    window.history.replaceState(null, '', urlFor(next))
-    setState(next)
-  }
-
-  return [state, navigate]
+function commitLine(snapshot) {
+  if (snapshot.workingTree) return `working tree · ${snapshot.subject}`
+  return `${snapshot.shortSha} · ${snapshot.subject}`
 }
 
 function badgeFor(entry) {
@@ -61,23 +21,35 @@ function badgeFor(entry) {
   return { text: 'No change', kind: 'none' }
 }
 
+// Only the diagram lives in the URL (#id). A leftover query from older links is dropped.
+function useDiagramHash() {
+  const read = () => decodeURIComponent(window.location.hash.slice(1))
+  const [diagramId, setDiagramId] = useState(read)
+  useEffect(() => {
+    if (window.location.search) {
+      window.history.replaceState(null, '', `${window.location.pathname}${window.location.hash}`)
+    }
+    const onHashChange = () => setDiagramId(read())
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
+  }, [])
+  return diagramId
+}
+
+const entries = after
+  ? compareSnapshots(before, after)
+  : before.diagrams.map((diagram) => ({ id: diagram.id, title: diagram.title, summary: diagram.summary, after: diagram }))
+
+const beforeLabel = after ? `${context.baseBranch} fork point` : context.baseBranch
+const afterLabel = after ? context.headBranch : null
+
 export default function App() {
-  const [{ version, mode, compare, older, diagramId, notices }, navigate] = useUrlState()
+  const diagramId = useDiagramHash()
+  const selected = useMemo(() => entries.find((entry) => entry.id === diagramId) ?? entries[0], [diagramId])
 
-  const entries = useMemo(
-    () =>
-      mode === 'changes' && compare
-        ? compareVersions(compare, version)
-        : version.diagrams.map((diagram) => ({ id: diagram.id, title: diagram.title, summary: diagram.summary, after: diagram })),
-    [mode, compare, version],
-  )
-  const selected = entries.find((entry) => entry.id === diagramId) ?? entries[0]
-
-  // Keep the shown diagram in the hash too, so the address bar names it.
   useEffect(() => {
     if (selected && decodeURIComponent(window.location.hash.slice(1)) !== selected.id) {
-      const { pathname, search } = window.location
-      window.history.replaceState(null, '', `${pathname}${search}#${encodeURIComponent(selected.id)}`)
+      window.history.replaceState(null, '', `${window.location.pathname}#${encodeURIComponent(selected.id)}`)
     }
   }, [selected])
 
@@ -89,87 +61,35 @@ export default function App() {
           <span className="page-kind">Architecture Review</span>
         </div>
 
-        <div className="controls">
-          <label className="control">
-            <span className="control-label">Version</span>
-            <select
-              value={version.sha}
-              onChange={(event) =>
-                navigate({ version: versions.find((v) => v.sha === event.target.value), compare: null })
-              }
-            >
-              {versions.map((v, index) => (
-                <option key={v.sha} value={v.sha}>
-                  {versionLabel(v)}
-                  {index === 0 ? ' (latest)' : ''}
-                  {v.sha === reviewHistory.startCommit ? ' (baseline)' : ''}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <div className="control" role="group" aria-label="View">
-            <span className="control-label">View</span>
-            <div className="segmented">
-              {[
-                ['full', 'Full'],
-                ['changes', 'Changes'],
-              ].map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  aria-pressed={mode === value}
-                  onClick={() => mode !== value && navigate({ mode: value, compare: null })}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+        {after ? (
+          <div className="review-context" data-testid="review-context" data-state="review">
+            <span className="review-state">Review</span>
+            <span className="review-branches">
+              <strong>{context.headBranch}</strong> → <strong>{context.baseBranch}</strong>
+              {context.prNumber && <span className="review-pr"> · PR #{context.prNumber}</span>}
+            </span>
+            <span className="review-snapshot">
+              <span className="review-snapshot-label">Before</span> {beforeLabel} · {commitLine(before)}
+            </span>
+            <span className="review-snapshot">
+              <span className="review-snapshot-label">After</span> {afterLabel} · {commitLine(after)}
+            </span>
           </div>
-
-          {mode === 'changes' && compare && (
-            <label className="control">
-              <span className="control-label">Compare from</span>
-              <select
-                value={compare.sha}
-                onChange={(event) => navigate({ compare: older.find((v) => v.sha === event.target.value) })}
-              >
-                {older.map((v) => (
-                  <option key={v.sha} value={v.sha}>
-                    {versionLabel(v)}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-        </div>
-
-        <p className="view-caption" data-testid="view-caption">
-          {mode === 'full' && (
-            <>
-              <strong>Full architecture</strong> at {shortName(version)}
-              {version.timestamp && ` · ${formatTime(version.timestamp)}`}
-            </>
-          )}
-          {mode === 'changes' && compare && (
-            <>
-              <strong>Changes</strong> from {shortName(compare)} → {shortName(version)}
-            </>
-          )}
-          {mode === 'changes' && !compare && <strong>Baseline version</strong>}
-        </p>
-
-        {notices.map((notice) => (
-          <p key={notice} className="notice" role="status">
-            {notice}
-          </p>
-        ))}
+        ) : (
+          <div className="review-context" data-testid="review-context" data-state="baseline">
+            <span className="review-state">Baseline</span>
+            <span className="review-snapshot">
+              <span className="review-snapshot-label">Before</span> {context.baseBranch} @ {commitLine(before)}
+            </span>
+            <span className="review-none">No active review</span>
+          </div>
+        )}
       </header>
 
       <nav className="diagram-nav" aria-label="Diagrams">
         <ul>
           {entries.map((entry) => {
-            const badge = mode === 'changes' && compare ? badgeFor(entry) : null
+            const badge = after ? badgeFor(entry) : null
             return (
               <li key={entry.id}>
                 <a
@@ -196,24 +116,22 @@ export default function App() {
       <main className="content">
         {!selected && <p className="diagram-status">No diagrams in the review manifest.</p>}
 
-        {selected && mode === 'full' && (
+        {selected && !after && (
           <article>
             <h2>{selected.title}</h2>
             {selected.summary && <p className="summary">{selected.summary}</p>}
+            <p className="snapshot-tag">
+              Before · {context.baseBranch} @ {before.shortSha}
+            </p>
             <div className={`diagram-canvas ${selected.after.presentation}`}>
               <MermaidDiagram source={selected.after.source} presentation={selected.after.presentation} />
             </div>
           </article>
         )}
 
-        {selected && mode === 'changes' && !compare && (
-          <article>
-            <h2>Baseline version</h2>
-            <p className="no-change">이전 Review Version이 없습니다.</p>
-          </article>
+        {selected && after && (
+          <ChangesView entry={selected} from={before} to={after} fromLabel={beforeLabel} toLabel={afterLabel} />
         )}
-
-        {selected && mode === 'changes' && compare && <ChangesView entry={selected} from={compare} to={version} />}
       </main>
     </div>
   )

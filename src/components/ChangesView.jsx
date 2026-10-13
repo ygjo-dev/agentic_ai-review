@@ -86,9 +86,9 @@ function ChangeSummary({ entry }) {
   )
 }
 
-function versionLine(version) {
-  if (version.workingTree) return `Working tree · ${version.subject}`
-  return `${version.timestamp.slice(0, 16).replace('T', ' ')} · ${version.shortSha} · ${version.subject}`
+function commitLine(snapshot) {
+  if (snapshot.workingTree) return `working tree · ${snapshot.subject}`
+  return `${snapshot.shortSha} · ${snapshot.subject}`
 }
 
 // Keeps the two panes at the same scroll ratio. A pane moved by the other pane
@@ -117,12 +117,14 @@ function useSyncedScroll() {
   return { ref: (index) => (element) => (panes.current[index] = element), onScroll }
 }
 
-function Pane({ side, version, source, presentation, sync, index }) {
+function Pane({ side, snapshot, label, source, presentation, sync, index }) {
   return (
     <section className={`compare-pane ${side}`} aria-label={side === 'before' ? 'Before' : 'After'}>
       <header className="compare-pane-header">
-        <strong>{side === 'before' ? 'Before' : 'After'}</strong>
-        <span className="compare-pane-version">{versionLine(version)}</span>
+        <strong>
+          {side === 'before' ? 'Before' : 'After'} · {label}
+        </strong>
+        <span className="compare-pane-version">{commitLine(snapshot)}</span>
       </header>
       <div
         className={`compare-pane-body ${presentation}`}
@@ -140,7 +142,7 @@ function Pane({ side, version, source, presentation, sync, index }) {
   )
 }
 
-export default function ChangesView({ entry, from, to }) {
+export default function ChangesView({ entry, from, to, fromLabel, toLabel }) {
   const sync = useSyncedScroll()
   const presentation = (entry.after ?? entry.before)?.presentation ?? 'default'
   return (
@@ -159,20 +161,20 @@ export default function ChangesView({ entry, from, to }) {
         <>
           {entry.diff.count === 0 ? (
             <p className="no-change" data-testid="no-change">
-              No architecture change in this review version.
+              No architecture change in this review.
             </p>
           ) : (
             <Legend />
           )}
-          {!entry.before && <p className="notice">New diagram in this version.</p>}
-          {!entry.after && <p className="notice">Diagram removed in this version.</p>}
+          {!entry.before && <p className="notice">New diagram in this review.</p>}
+          {!entry.after && <p className="notice">Diagram removed in this review.</p>}
           {entry.metadataChanges.length > 0 && (
             <p className="metadata-note">Review metadata changed: {entry.metadataChanges.join(', ')}</p>
           )}
           <div className="compare-scroll">
             <div className="compare-grid">
-              <Pane side="before" index={0} version={from} source={entry.panes.before} presentation={presentation} sync={sync} />
-              <Pane side="after" index={1} version={to} source={entry.panes.after} presentation={presentation} sync={sync} />
+              <Pane side="before" index={0} snapshot={from} label={fromLabel} source={entry.panes.before} presentation={presentation} sync={sync} />
+              <Pane side="after" index={1} snapshot={to} label={toLabel} source={entry.panes.after} presentation={presentation} sync={sync} />
             </div>
           </div>
           {entry.diff.count > 0 && <ChangeSummary entry={entry} />}

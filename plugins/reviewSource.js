@@ -2,20 +2,22 @@
 // and exposes it to the app as `virtual:review-source`. Nothing is copied into
 // this repository; the data only ends up in dist/ as a build artifact.
 //
-// Review Versions are the agentic_ai commits that touched dev/review, read from
-// git history (see reviewHistory.js). The dev server adds an uncommitted
-// "working tree" version on top when dev/review differs from the latest commit.
+// A review has at most two snapshots, both named by commit in the build's review
+// context (REVIEW_* environment, see readReviewContext):
+//   baseline  Before = the develop HEAD, no After
+//   review    Before = the feature branch's fork point, After = its head
+// The dev server without a context shows HEAD, plus uncommitted dev/review edits
+// as After when there are any.
 import fs from 'node:fs'
 import path from 'node:path'
 import { parse } from 'yaml'
 import { FlowchartError, parseFlowchart } from '../src/review/flowchart.js'
-import { REVIEW_DIR, checkRepository, listReviewCommits, showFile } from './reviewHistory.js'
+import { REVIEW_DIR, checkRepository, commitInfo, git, isAncestor, showFile } from './reviewGit.js'
 
 const VIRTUAL_ID = 'virtual:review-source'
 const RESOLVED_ID = '\0' + VIRTUAL_ID
 const MANIFEST = `${REVIEW_DIR}/manifest.yaml`
 
-export const WORKING_TREE = 'working-tree'
 
 function fail(message) {
   throw new Error(`[review-source] ${message}`)
@@ -106,8 +108,8 @@ export function readReviewSource(sourceRoot) {
   return { data, files }
 }
 
-// The semantic graph behind Changes mode. A diagram outside the supported
-// Mermaid subset keeps rendering in Full mode but carries graphError instead.
+// The semantic graph behind the Before / After diff. A diagram outside the supported
+// Mermaid subset still renders but carries graphError instead.
 function withGraphs(review, label, warnings) {
   return {
     ...review,
@@ -124,68 +126,85 @@ function withGraphs(review, label, warnings) {
   }
 }
 
-// The current manifest's optional history policy: { start_commit }. Review
-// history begins at that commit; earlier Review commits stay in git but are not
-// Review Versions. Read from the current manifest only, never per version.
-function readHistoryPolicy(sourceRoot) {
-  const manifestPath = path.join(sourceRoot, MANIFEST)
-  if (!fs.existsSync(manifestPath)) fail(`manifest not found: ${manifestPath}`)
-  let manifest
-  try {
-    manifest = parse(fs.readFileSync(manifestPath, 'utf8'))
-  } catch (error) {
-    fail(`cannot parse ${manifestPath}: ${error.message}`)
+// Branch names are shown, never executed; still only accept plain git ref names.
+const BRANCH = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/
+
+// The review context the build was asked for:
+//   REVIEW_BASE_SHA     Before commit (default: HEAD of the source checkout)
+//   REVIEW_HEAD_SHA     After commit; empty = baseline only
+//   REVIEW_BASE_BRANCH  branch Before belongs to (default: the checkout's branch)
+//   REVIEW_HEAD_BRANCH  feature branch of After
+//   REVIEW_PR_NUMBER    pull request under review
+export function readReviewContext(sourceRoot, env = process.env) {
+  const value = (name) => (typeof env[name] === 'string' ? env[name].trim() : '')
+  const baseRef = value('REVIEW_BASE_SHA') || 'HEAD'
+  const headRef = value('REVIEW_HEAD_SHA')
+  const baseBranch = value('REVIEW_BASE_BRANCH') || git(sourceRoot, ['rev-parse', '--abbrev-ref', 'HEAD']).trim()
+  const headBranch = value('REVIEW_HEAD_BRANCH') || null
+  const prText = value('REVIEW_PR_NUMBER')
+
+  for (const [name, branch] of [['REVIEW_BASE_BRANCH', baseBranch], ['REVIEW_HEAD_BRANCH', headBranch]]) {
+    if (branch !== null && !BRANCH.test(branch)) fail(`${name} is not a branch name: ${JSON.stringify(branch)}`)
   }
-  const history = manifest?.history
-  if (history === undefined || history === null) return { start: null }
-  if (typeof history !== 'object' || Array.isArray(history)) fail(`${manifestPath}: "history" must be a mapping`)
-  const unknown = Object.keys(history).filter((key) => key !== 'start_commit')
-  if (unknown.length) fail(`${manifestPath}: unknown history keys ${JSON.stringify(unknown)}`)
-  const start = history.start_commit
-  if (typeof start !== 'string' || start.trim() === '') fail(`${manifestPath}: history.start_commit must be a commit SHA`)
-  return { start: start.trim() }
+  if (prText && !/^[1-9][0-9]*$/.test(prText)) fail(`REVIEW_PR_NUMBER is not a pull request number: ${JSON.stringify(prText)}`)
+  if (!headRef && (headBranch || prText)) fail('REVIEW_HEAD_BRANCH / REVIEW_PR_NUMBER given without REVIEW_HEAD_SHA')
+
+  const base = commitInfo(sourceRoot, baseRef)
+  const head = headRef ? commitInfo(sourceRoot, headRef) : null
+  if (head && !isAncestor(sourceRoot, base.sha, head.sha)) {
+    fail(`REVIEW_BASE_SHA ${base.shortSha} is not an ancestor of REVIEW_HEAD_SHA ${head.shortSha}; Before must be the fork point`)
+  }
+  return { base, head, baseBranch, headBranch, prNumber: prText ? Number(prText) : null }
 }
 
-export function readReviewVersions(sourceRoot, { includeWorkingTree = false } = {}) {
-  const warnings = []
+function snapshotAt(sourceRoot, commit, warnings) {
+  const review = buildReview(
+    showFile(sourceRoot, commit, MANIFEST),
+    `${MANIFEST} at ${commit.shortSha}`,
+    (file) => showFile(sourceRoot, commit, file),
+  )
+  return { ...commit, workingTree: false, ...withGraphs(review, commit.shortSha, warnings) }
+}
+
+const plain = (review) => ({
+  project: review.project,
+  diagrams: review.diagrams.map(({ id, title, summary, file, watch, presentation, source }) => ({ id, title, summary, file, watch, presentation, source })),
+})
+
+// { project, review: {state, baseBranch, headBranch, prNumber}, before, after } —
+// never more than these two snapshots.
+export function readReview(sourceRoot, { includeWorkingTree = false, env = process.env } = {}) {
   checkRepository(sourceRoot)
-  const policy = readHistoryPolicy(sourceRoot)
-  const { commits, before } = listReviewCommits(sourceRoot, { start: policy.start, manifest: MANIFEST })
-  const versions = commits.map((commit) => {
-    const review = buildReview(
-      showFile(sourceRoot, commit, MANIFEST),
-      `${MANIFEST} at ${commit.shortSha}`,
-      (file) => showFile(sourceRoot, commit, file),
-    )
-    return { ...commit, workingTree: false, ...withGraphs(review, commit.shortSha, warnings) }
-  })
+  const warnings = []
+  const context = readReviewContext(sourceRoot, env)
+  const before = snapshotAt(sourceRoot, context.base, warnings)
+  let after = context.head ? snapshotAt(sourceRoot, context.head, warnings) : null
+  let headBranch = context.headBranch
 
   const files = []
-  if (includeWorkingTree) {
+  if (includeWorkingTree && !after) {
     const current = readReviewSource(sourceRoot)
     files.push(...current.files)
-    const latest = versions[0]
-    const plain = (review) => ({
-      project: review.project,
-      diagrams: review.diagrams.map(({ id, title, summary, file, watch, presentation, source }) => ({ id, title, summary, file, watch, presentation, source })),
-    })
-    if (!latest || JSON.stringify(plain(current.data)) !== JSON.stringify(plain(latest))) {
-      versions.unshift({
-        sha: WORKING_TREE,
+    if (JSON.stringify(plain(current.data)) !== JSON.stringify(plain(before))) {
+      after = {
+        sha: 'working-tree',
         shortSha: 'working tree',
         timestamp: null,
         subject: `Uncommitted ${REVIEW_DIR} changes`,
         workingTree: true,
         ...withGraphs(current.data, 'working tree', warnings),
-      })
+      }
+      headBranch = 'working tree'
     }
   }
 
-  if (versions.length === 0) {
-    fail(`no Review Versions: no commit in ${sourceRoot} touches ${REVIEW_DIR}`)
+  const review = {
+    state: after ? 'review' : 'baseline',
+    baseBranch: context.baseBranch,
+    headBranch: after ? headBranch : null,
+    prNumber: after ? context.prNumber : null,
   }
-  const history = { startCommit: policy.start ? commits.at(-1).sha : null, before }
-  return { data: { project: versions[0].project, versions, history }, files, warnings }
+  return { data: { project: (after ?? before).project, review, before, after }, files, warnings }
 }
 
 export default function reviewSource({ sourceRoot }) {
@@ -201,7 +220,7 @@ export default function reviewSource({ sourceRoot }) {
 
     // Fail dev/build startup on a broken Review Source instead of at first request.
     buildStart() {
-      readReviewVersions(sourceRoot, { includeWorkingTree: serving })
+      readReview(sourceRoot, { includeWorkingTree: serving })
     },
 
     resolveId(id) {
@@ -210,7 +229,7 @@ export default function reviewSource({ sourceRoot }) {
 
     load(id) {
       if (id !== RESOLVED_ID) return
-      const { data, files, warnings } = readReviewVersions(sourceRoot, { includeWorkingTree: serving })
+      const { data, files, warnings } = readReview(sourceRoot, { includeWorkingTree: serving })
       for (const warning of warnings) this.warn(`Changes unavailable for ${warning}`)
       for (const file of files) this.addWatchFile(file)
       return `export default ${JSON.stringify(data)}`
@@ -221,7 +240,7 @@ export default function reviewSource({ sourceRoot }) {
         const module = server.moduleGraph.getModuleById(RESOLVED_ID)
         if (module) server.moduleGraph.invalidateModule(module)
       }
-      // A page load re-reads git history, so new Review commits show up on refresh.
+      // A page load re-reads the snapshots, so new commits show up on refresh.
       server.middlewares.use((req, res, next) => {
         if (req.headers.accept?.includes('text/html')) invalidate()
         next()

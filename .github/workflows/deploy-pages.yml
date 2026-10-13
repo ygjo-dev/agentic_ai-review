@@ -1,5 +1,11 @@
 # Builds the static viewer from the agentic_ai Review Source and publishes dist/
-# to GitHub Pages. Pull requests only build; main pushes (and manual runs on main) deploy.
+# to GitHub Pages. Pull requests only build; main pushes and dispatches deploy.
+#
+# What is shown is one review context, never a history:
+#   baseline  Before = agentic_ai develop HEAD, no After
+#   review    Before = fork point of the one review-ready PR, After = its head
+# agentic_ai's Review Web workflow dispatches this with the pair for its PR event;
+# a run without inputs (viewer push, manual run) looks the context up itself.
 name: Deploy Pages
 
 on:
@@ -7,12 +13,33 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      base_sha:
+        description: Before commit (empty = look the review context up)
+        required: false
+        default: ''
+      head_sha:
+        description: After commit (empty = baseline only)
+        required: false
+        default: ''
+      base_branch:
+        description: Branch the review merges into
+        required: false
+        default: develop
+      head_branch:
+        description: Feature branch under review
+        required: false
+        default: ''
+      pr_number:
+        description: Pull request under review
+        required: false
+        default: ''
 
 permissions:
   contents: read
 
 env:
-  # Branch of ygjo-dev/agentic_ai whose dev/review is published.
+  # Branch of ygjo-dev/agentic_ai that reviews merge into (the baseline).
   AGENTIC_AI_REF: develop
 
 jobs:
@@ -28,7 +55,7 @@ jobs:
           path: agentic_ai-review
           persist-credentials: false
 
-      # Full history: Review Version history is read from agentic_ai git commits.
+      # Full history: the fork point is merge-base(develop, PR head).
       - name: Checkout agentic_ai
         uses: actions/checkout@v7
         with:
@@ -52,6 +79,20 @@ jobs:
       - name: Lint
         working-directory: agentic_ai-review
         run: npm run lint
+
+      # Inputs reach the script as environment variables only, never as shell text.
+      - name: Resolve review context
+        working-directory: agentic_ai-review
+        env:
+          AGENTIC_AI_REVIEW_SOURCE_ROOT: ${{ github.workspace }}/agentic_ai
+          AGENTIC_REPO: ygjo-dev/agentic_ai
+          GITHUB_TOKEN: ${{ github.token }}
+          INPUT_BASE_SHA: ${{ inputs.base_sha }}
+          INPUT_HEAD_SHA: ${{ inputs.head_sha }}
+          INPUT_BASE_BRANCH: ${{ inputs.base_branch || env.AGENTIC_AI_REF }}
+          INPUT_HEAD_BRANCH: ${{ inputs.head_branch }}
+          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+        run: node scripts/resolve-review-context.mjs
 
       - name: Build
         working-directory: agentic_ai-review
