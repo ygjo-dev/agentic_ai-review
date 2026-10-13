@@ -1,6 +1,6 @@
 // Semantic diff between two parsed flowcharts (see flowchart.js) and the
-// full-context Changes diagram that highlights it. Pure module.
-import { ARROW_SYNTAX, SHAPE_BRACKETS } from './flowchart.js'
+// Before / After diagrams that show it side by side. Pure module.
+import { SHAPE_BRACKETS } from './flowchart.js'
 
 const EMPTY_GRAPH = { direction: null, nodes: [], edges: [], subgraphs: [] }
 
@@ -100,88 +100,96 @@ const DIFF_STYLE = {
   },
 }
 
-const removedLabel = (label) => `${STATUS_MARK.removed} ${label}`.trim()
+const LINE_BREAK = /<br\s*\/?>/i
 
-function nodeLine(id, node, label) {
-  const [open, close] = SHAPE_BRACKETS[node.shape]
-  return `${id}${open}"${label}"${close}`
+// The text a reader sees on one label line: markup dropped, spaces folded.
+export function visibleText(line) {
+  return line.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
 }
 
-function edgeLine(from, to, edge, label) {
-  const arrow = ARROW_SYNTAX[`${edge.style}/${edge.arrow}`]
-  return `${from} ${arrow}${label ? `|"${label}"|` : ''} ${to}`
+// Line diff of two labels by visible text (longest common subsequence), so one
+// inserted line leaves the lines after it unchanged. Returns, per side, each
+// label line with its status: 'same', 'removed' (before only) or 'added' (after only).
+export function diffLabelLines(beforeLabel, afterLabel) {
+  const a = beforeLabel.split(LINE_BREAK)
+  const b = afterLabel.split(LINE_BREAK)
+  const ka = a.map(visibleText)
+  const kb = b.map(visibleText)
+  const lcs = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0))
+  for (let i = a.length - 1; i >= 0; i--) {
+    for (let j = b.length - 1; j >= 0; j--) {
+      lcs[i][j] = ka[i] === kb[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1])
+    }
+  }
+  const before = []
+  const after = []
+  let i = 0
+  let j = 0
+  while (i < a.length || j < b.length) {
+    if (i < a.length && j < b.length && ka[i] === kb[j]) {
+      before.push({ line: a[i++], status: 'same' })
+      after.push({ line: b[j++], status: 'same' })
+    } else if (j >= b.length || (i < a.length && lcs[i + 1][j] >= lcs[i][j + 1])) {
+      before.push({ line: a[i++], status: 'removed' })
+    } else {
+      after.push({ line: b[j++], status: 'added' })
+    }
+  }
+  return { before, after }
 }
 
-// Viewer-only Mermaid for Changes: the selected (after) diagram's canonical text,
-// untouched, so it lays out like Full; added elements only gain a style. What the
-// compared (before) version had and the selected one lost is added on top in red:
-// removed nodes and edges, and the old side of a modified node or edge (a modified
-// element shows as removed old + added new). The .mmd sources never carry this.
-export function diffMermaid(before, after, diff) {
-  if (!after) {
-    // The whole diagram was removed: show the compared version, all red.
-    const graph = before.graph
-    const lines = before.source.trimEnd().split('\n')
-    lines.push(`    classDef diffRemoved ${DIFF_STYLE.removed.node}`)
-    if (graph.nodes.length) lines.push(`    class ${graph.nodes.map((n) => n.id).join(',')} diffRemoved`)
-    graph.edges.forEach((_, index) => lines.push(`    linkStyle ${index} ${DIFF_STYLE.removed.link}`))
-    return lines.join('\n') + '\n'
+const LINE_TAG = { removed: 'del', added: 'ins' }
+
+function markedLabel(lines) {
+  return lines
+    .map(({ line, status }) => (LINE_TAG[status] ? `<${LINE_TAG[status]}>${line}</${LINE_TAG[status]}>` : line))
+    .join('<br/>')
+}
+
+// Viewer-only Mermaid for one side of Changes: that version's canonical text,
+// so it lays out like its Full view, plus styles for what changed on this side.
+// side 'before': removed nodes and edges red; 'after': added ones green.
+// A node whose shape changed counts as removed + added. A node whose label alone
+// changed stays neutral: only its changed lines are marked, <del> before / <ins> after.
+// The .mmd sources never carry any of this.
+export function sideMermaid(diagram, diff, side) {
+  const removedSide = side === 'before'
+  const style = removedSide ? DIFF_STYLE.removed : DIFF_STYLE.added
+  const className = removedSide ? 'diffRemoved' : 'diffAdded'
+  const graph = diagram.graph
+  const lines = diagram.source.trimEnd().split('\n')
+
+  const wholeNodes = removedSide ? [...diff.removedNodes] : [...diff.addedNodes]
+  for (const change of diff.changedNodes) {
+    const node = removedSide ? change.before : change.after
+    if (change.changes.some((c) => c.field === 'shape')) {
+      wholeNodes.push(node)
+      continue
+    }
+    const index = node.line - 1
+    const [open, close] = SHAPE_BRACKETS[node.shape]
+    // An undeclared node (named only in an edge) has no label line to mark.
+    if (!lines[index].trim().startsWith(`${node.id}${open}"`)) {
+      wholeNodes.push(node)
+      continue
+    }
+    const labels = diffLabelLines(change.before.label, change.after.label)
+    const indent = lines[index].match(/^(\s*)/)[1]
+    lines[index] = `${indent}${node.id}${open}"${markedLabel(removedSide ? labels.before : labels.after)}"${close}`
   }
 
-  const graph = after.graph
-  const lines = after.source.trimEnd().split('\n')
-  const insertAfter = new Map() // 1-based line number -> lines to add after it
-  const insert = (lineNo, text) => insertAfter.set(lineNo, [...(insertAfter.get(lineNo) ?? []), text])
-  const appended = []
-  const links = [] // appended links, in emission order
-  const usedIds = new Set([...graph.nodes.map((n) => n.id), ...graph.subgraphs.map((s) => s.id)])
-  const subgraphEnd = new Map(graph.subgraphs.map((s) => [s.id, s.endLine]))
-
-  // Removed nodes keep their id (it is free in the selected version) and go back
-  // into their old subgraph when that still exists.
-  const declare = (node, id, nearLine) => {
-    const text = `    ${nodeLine(id, node, removedLabel(node.label))}`
-    if (nearLine) insert(nearLine, text)
-    else if (node.subgraph && subgraphEnd.has(node.subgraph)) insert(subgraphEnd.get(node.subgraph) - 1, text)
-    else appended.push(text)
+  const styled = new Set(
+    removedSide
+      ? [...diff.removedEdges, ...diff.changedEdges.map((c) => c.before)]
+      : [...diff.addedEdges, ...diff.changedEdges.map((c) => c.after)],
+  )
+  if (wholeNodes.length) {
+    lines.push(`    classDef ${className} ${style.node}`, `    class ${wholeNodes.map((n) => n.id).join(',')} ${className}`)
   }
-  const removedIds = []
-  for (const node of diff.removedNodes) {
-    declare(node, node.id)
-    removedIds.push(node.id)
-  }
-  // The old side of a modified node needs a viewer-only id next to the canonical one.
-  for (const { before: old, after: current } of diff.changedNodes) {
-    let id = `${current.id}__removed`
-    while (usedIds.has(id)) id += '_'
-    usedIds.add(id)
-    declare(old, id, current.line)
-    removedIds.push(id)
-    links.push({ text: `${id} ~~~ ${current.id}`, status: 'invisible' })
-  }
-  for (const edge of [...diff.removedEdges, ...diff.changedEdges.map((c) => c.before)]) {
-    links.push({ text: edgeLine(edge.from, edge.to, edge, removedLabel(edge.label)), status: 'removed' })
-  }
-
-  const out = []
-  lines.forEach((line, index) => {
-    out.push(line)
-    out.push(...(insertAfter.get(index + 1) ?? []))
-  })
-  out.push(...appended, ...links.map((link) => `    ${link.text}`))
-
-  const addedIds = [...diff.addedNodes.map((n) => n.id), ...diff.changedNodes.map((c) => c.after.id)]
-  if (addedIds.length) out.push(`    classDef diffAdded ${DIFF_STYLE.added.node}`, `    class ${addedIds.join(',')} diffAdded`)
-  if (removedIds.length) out.push(`    classDef diffRemoved ${DIFF_STYLE.removed.node}`, `    class ${removedIds.join(',')} diffRemoved`)
-  // Canonical links keep their indexes; appended links follow them.
-  const addedEdges = new Set([...diff.addedEdges, ...diff.changedEdges.map((c) => c.after)])
   graph.edges.forEach((edge, index) => {
-    if (addedEdges.has(edge)) out.push(`    linkStyle ${index} ${DIFF_STYLE.added.link}`)
+    if (styled.has(edge)) lines.push(`    linkStyle ${index} ${style.link}`)
   })
-  links.forEach((link, offset) => {
-    if (link.status === 'removed') out.push(`    linkStyle ${graph.edges.length + offset} ${DIFF_STYLE.removed.link}`)
-  })
-  return out.join('\n') + '\n'
+  return lines.join('\n') + '\n'
 }
 
 // First line of a Mermaid label without markup, for text summaries.
@@ -193,7 +201,7 @@ export function displayName(node) {
 const METADATA_FIELDS = ['title', 'summary', 'file', 'watch', 'presentation']
 
 // One entry per diagram of either version (selected version's order first),
-// with its semantic diff and Changes Mermaid, or the reason it has none.
+// with its semantic diff and Before / After Mermaid, or the reason it has none.
 export function compareVersions(fromVersion, toVersion) {
   const beforeById = new Map(fromVersion.diagrams.map((diagram) => [diagram.id, diagram]))
   const afterIds = new Set(toVersion.diagrams.map((diagram) => diagram.id))
@@ -213,7 +221,14 @@ export function compareVersions(fromVersion, toVersion) {
     if (graphError) return { ...entry, error: graphError }
     try {
       const diff = diffGraphs(before?.graph ?? null, after?.graph ?? null)
-      return { ...entry, diff, mermaid: diff.count ? diffMermaid(before, after, diff) : null }
+      return {
+        ...entry,
+        diff,
+        panes: {
+          before: before && sideMermaid(before, diff, 'before'),
+          after: after && sideMermaid(after, diff, 'after'),
+        },
+      }
     } catch (error) {
       return { ...entry, error: `${shown.file}: ${error.message}` }
     }

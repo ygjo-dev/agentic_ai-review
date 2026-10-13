@@ -267,8 +267,76 @@ body {
 
 /* Schema diagrams list fields; read them left-aligned like code. */
 .diagram-canvas.schema .nodeLabel,
-.diagram-canvas.schema .nodeLabel p {
+.diagram-canvas.schema .nodeLabel p,
+.compare-pane-body.schema .nodeLabel,
+.compare-pane-body.schema .nodeLabel p {
   text-align: left;
+}
+
+/* Changes: Before | After, each its own version's full diagram. Below the grid's
+   minimum width the comparison scrolls as a whole instead of shrinking. */
+.compare-scroll {
+  overflow-x: auto;
+}
+
+.compare-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  min-width: 1040px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.compare-pane + .compare-pane {
+  border-left: 2px solid var(--border);
+}
+
+.compare-pane-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.compare-pane-version {
+  color: var(--muted);
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compare-pane-body {
+  height: max(480px, calc(100vh - 300px));
+  overflow: auto;
+  padding: 16px;
+}
+
+.compare-missing {
+  margin: 0;
+  color: var(--muted);
+}
+
+/* Changed lines inside a node whose label changed: text styling only. */
+.compare-pane-body ins,
+.legend-line:is(ins) {
+  color: var(--added);
+  background: var(--added-bg);
+  text-decoration: underline;
+}
+
+.compare-pane-body del,
+.legend-line:is(del) {
+  color: var(--removed);
+  background: var(--removed-bg);
+  text-decoration: line-through;
+}
+
+.legend-line {
+  margin-left: 4px;
+  font-size: 0.82rem;
 }
 
 /* Mermaid measures labels in a temporary node outside .diagram-svg, so this is global.

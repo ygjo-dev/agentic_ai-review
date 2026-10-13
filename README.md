@@ -10,7 +10,8 @@ to read another checkout.
 
 Review Versions are the agentic_ai commits that touch `dev/review` (`git log -- dev/review`),
 read at dev/build time with `git show` so the agentic_ai working tree never moves. The viewer
-shows one version in Full, or its semantic Changes against an earlier one, and keeps the view in
+shows one version in Full, or Before | After side by side with its semantic changes against an
+earlier one (label lines that changed are marked inside an otherwise neutral node), and keeps the view in
 the URL: `?version=<sha>&compare=<sha>&mode=changes#<diagram id>`. The dev server also offers
 uncommitted `dev/review` edits as a "Working tree" version. An optional `history.start_commit`
 in the current manifest starts Review history at that commit; earlier Review commits stay in git

@@ -213,7 +213,7 @@ export default function App() {
           </article>
         )}
 
-        {selected && mode === 'changes' && compare && <ChangesView entry={selected} />}
+        {selected && mode === 'changes' && compare && <ChangesView entry={selected} from={compare} to={version} />}
       </main>
     </div>
   )
