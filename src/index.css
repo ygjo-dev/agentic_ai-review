@@ -265,6 +265,12 @@ body {
   margin: 0 auto;
 }
 
+/* Schema diagrams list fields; read them left-aligned like code. */
+.diagram-canvas.schema .nodeLabel,
+.diagram-canvas.schema .nodeLabel p {
+  text-align: left;
+}
+
 /* Mermaid measures labels in a temporary node outside .diagram-svg, so this is global.
    Korean words otherwise break mid-syllable-run. */
 .nodeLabel,

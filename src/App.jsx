@@ -5,7 +5,7 @@ import MermaidDiagram from './components/MermaidDiagram.jsx'
 import { compareVersions } from './review/changes.js'
 import { readUrlState, urlFor } from './urlState.js'
 
-const { project, versions } = review
+const { project, versions, history: reviewHistory } = review
 
 function formatTime(timestamp) {
   // Committer-local time as recorded in git, independent of the viewer's zone.
@@ -24,14 +24,14 @@ function shortName(version) {
 // Reads the view from the URL and writes it back in canonical form (full SHAs,
 // explicit compare), so the address bar is always a shareable link.
 function useUrlState() {
-  const [state, setState] = useState(() => readUrlState(versions))
+  const [state, setState] = useState(() => readUrlState(versions, reviewHistory))
 
   useEffect(() => {
     // Rewrite only: the first read (with its notices) is already in state, and a
     // second read here would see the canonical URL and drop those notices.
-    window.history.replaceState(null, '', urlFor(readUrlState(versions)))
+    window.history.replaceState(null, '', urlFor(readUrlState(versions, reviewHistory)))
     const sync = () => {
-      const next = readUrlState(versions)
+      const next = readUrlState(versions, reviewHistory)
       window.history.replaceState(null, '', urlFor(next))
       setState(next)
     }
@@ -45,7 +45,7 @@ function useUrlState() {
 
   const navigate = (change) => {
     window.history.pushState(null, '', urlFor({ ...state, ...change }))
-    const next = readUrlState(versions)
+    const next = readUrlState(versions, reviewHistory)
     window.history.replaceState(null, '', urlFor(next))
     setState(next)
   }
@@ -102,6 +102,7 @@ export default function App() {
                 <option key={v.sha} value={v.sha}>
                   {versionLabel(v)}
                   {index === 0 ? ' (latest)' : ''}
+                  {v.sha === reviewHistory.startCommit ? ' (baseline)' : ''}
                 </option>
               ))}
             </select>
@@ -199,8 +200,8 @@ export default function App() {
           <article>
             <h2>{selected.title}</h2>
             {selected.summary && <p className="summary">{selected.summary}</p>}
-            <div className="diagram-canvas">
-              <MermaidDiagram source={selected.after.source} />
+            <div className={`diagram-canvas ${selected.after.presentation}`}>
+              <MermaidDiagram source={selected.after.source} presentation={selected.after.presentation} />
             </div>
           </article>
         )}

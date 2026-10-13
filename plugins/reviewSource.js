@@ -9,7 +9,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { parse } from 'yaml'
 import { FlowchartError, parseFlowchart } from '../src/review/flowchart.js'
-import { REVIEW_DIR, listReviewCommits, showFile } from './reviewHistory.js'
+import { REVIEW_DIR, checkRepository, listReviewCommits, showFile } from './reviewHistory.js'
 
 const VIRTUAL_ID = 'virtual:review-source'
 const RESOLVED_ID = '\0' + VIRTUAL_ID
@@ -26,6 +26,17 @@ function requireString(diagram, index, key) {
   if (typeof value !== 'string' || value.trim() === '') {
     const label = typeof diagram.id === 'string' ? `"${diagram.id}"` : `#${index}`
     fail(`diagrams[${index}] (${label}) has no "${key}"`)
+  }
+  return value
+}
+
+// How the viewer lays a diagram out. "schema" = field lists: left-aligned, wider labels.
+const PRESENTATIONS = ['default', 'schema']
+
+function readPresentation(diagram, index, where) {
+  const value = diagram.presentation ?? 'default'
+  if (!PRESENTATIONS.includes(value)) {
+    fail(`${where}: diagrams[${index}].presentation must be one of ${PRESENTATIONS.join(', ')}`)
   }
   return value
 }
@@ -60,6 +71,7 @@ function buildReview(manifestText, where, readDiagram) {
       summary: diagram.summary ?? '',
       file,
       watch: Array.isArray(diagram.watch) ? diagram.watch : [],
+      presentation: readPresentation(diagram, index, where),
       source: readDiagram(file, id),
     }
   })
@@ -112,9 +124,34 @@ function withGraphs(review, label, warnings) {
   }
 }
 
+// The current manifest's optional history policy: { start_commit }. Review
+// history begins at that commit; earlier Review commits stay in git but are not
+// Review Versions. Read from the current manifest only, never per version.
+function readHistoryPolicy(sourceRoot) {
+  const manifestPath = path.join(sourceRoot, MANIFEST)
+  if (!fs.existsSync(manifestPath)) fail(`manifest not found: ${manifestPath}`)
+  let manifest
+  try {
+    manifest = parse(fs.readFileSync(manifestPath, 'utf8'))
+  } catch (error) {
+    fail(`cannot parse ${manifestPath}: ${error.message}`)
+  }
+  const history = manifest?.history
+  if (history === undefined || history === null) return { start: null }
+  if (typeof history !== 'object' || Array.isArray(history)) fail(`${manifestPath}: "history" must be a mapping`)
+  const unknown = Object.keys(history).filter((key) => key !== 'start_commit')
+  if (unknown.length) fail(`${manifestPath}: unknown history keys ${JSON.stringify(unknown)}`)
+  const start = history.start_commit
+  if (typeof start !== 'string' || start.trim() === '') fail(`${manifestPath}: history.start_commit must be a commit SHA`)
+  return { start: start.trim() }
+}
+
 export function readReviewVersions(sourceRoot, { includeWorkingTree = false } = {}) {
   const warnings = []
-  const versions = listReviewCommits(sourceRoot).map((commit) => {
+  checkRepository(sourceRoot)
+  const policy = readHistoryPolicy(sourceRoot)
+  const { commits, before } = listReviewCommits(sourceRoot, { start: policy.start, manifest: MANIFEST })
+  const versions = commits.map((commit) => {
     const review = buildReview(
       showFile(sourceRoot, commit, MANIFEST),
       `${MANIFEST} at ${commit.shortSha}`,
@@ -130,7 +167,7 @@ export function readReviewVersions(sourceRoot, { includeWorkingTree = false } = 
     const latest = versions[0]
     const plain = (review) => ({
       project: review.project,
-      diagrams: review.diagrams.map(({ id, title, summary, file, watch, source }) => ({ id, title, summary, file, watch, source })),
+      diagrams: review.diagrams.map(({ id, title, summary, file, watch, presentation, source }) => ({ id, title, summary, file, watch, presentation, source })),
     })
     if (!latest || JSON.stringify(plain(current.data)) !== JSON.stringify(plain(latest))) {
       versions.unshift({
@@ -147,7 +184,8 @@ export function readReviewVersions(sourceRoot, { includeWorkingTree = false } = 
   if (versions.length === 0) {
     fail(`no Review Versions: no commit in ${sourceRoot} touches ${REVIEW_DIR}`)
   }
-  return { data: { project: versions[0].project, versions }, files, warnings }
+  const history = { startCommit: policy.start ? commits.at(-1).sha : null, before }
+  return { data: { project: versions[0].project, versions, history }, files, warnings }
 }
 
 export default function reviewSource({ sourceRoot }) {

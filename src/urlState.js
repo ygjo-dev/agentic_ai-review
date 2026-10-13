@@ -11,13 +11,27 @@ function findVersion(versions, value) {
   return matches.length === 1 ? matches[0] : null
 }
 
-export function readUrlState(versions) {
+// A Review commit from before the manifest's history.start_commit: still in git,
+// but not part of this Review history.
+function predatesBaseline(history, value) {
+  if (!value || value.length < 4 || !history?.startCommit) return false
+  return history.before.some((sha) => sha.startsWith(value))
+}
+
+function missing(history, value, fallback) {
+  const shortStart = history?.startCommit?.slice(0, 7)
+  return predatesBaseline(history, value)
+    ? `Review Version "${value.slice(0, 12)}" predates the current Review baseline (${shortStart}). ${fallback}`
+    : `Review Version "${value}" not found. ${fallback}`
+}
+
+export function readUrlState(versions, history = null) {
   const params = new URLSearchParams(window.location.search)
   const notices = []
 
   const requested = params.get('version')
   let version = findVersion(versions, requested)
-  if (requested && !version) notices.push(`Review Version "${requested}" not found. Showing the latest version.`)
+  if (requested && !version) notices.push(missing(history, requested, 'Showing the latest version.'))
   version ??= versions[0]
 
   const requestedMode = params.get('mode')
@@ -33,10 +47,11 @@ export function readUrlState(versions) {
     const requestedCompare = params.get('compare')
     compare = requestedCompare ? findVersion(older, requestedCompare) : null
     if (requestedCompare && !compare) {
+      const fallback = older.length ? 'Comparing with the previous version.' : 'This is the baseline version.'
       notices.push(
-        older.length
-          ? `"${requestedCompare}" is not an earlier Review Version. Comparing with the previous version.`
-          : `"${requestedCompare}" is not an earlier Review Version.`,
+        predatesBaseline(history, requestedCompare)
+          ? missing(history, requestedCompare, fallback)
+          : `"${requestedCompare}" is not an earlier Review Version. ${fallback}`,
       )
     }
     compare ??= older[0] ?? null

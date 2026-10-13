@@ -190,7 +190,7 @@ export function displayName(node) {
   return text || node.id
 }
 
-const METADATA_FIELDS = ['title', 'summary', 'file', 'watch']
+const METADATA_FIELDS = ['title', 'summary', 'file', 'watch', 'presentation']
 
 // One entry per diagram of either version (selected version's order first),
 // with its semantic diff and Changes Mermaid, or the reason it has none.

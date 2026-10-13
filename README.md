@@ -12,7 +12,9 @@ Review Versions are the agentic_ai commits that touch `dev/review` (`git log -- 
 read at dev/build time with `git show` so the agentic_ai working tree never moves. The viewer
 shows one version in Full, or its semantic Changes against an earlier one, and keeps the view in
 the URL: `?version=<sha>&compare=<sha>&mode=changes#<diagram id>`. The dev server also offers
-uncommitted `dev/review` edits as a "Working tree" version.
+uncommitted `dev/review` edits as a "Working tree" version. An optional `history.start_commit`
+in the current manifest starts Review history at that commit; earlier Review commits stay in git
+but are not Review Versions. A diagram with `presentation: schema` renders as left-aligned field lists.
 
 Production is a public GitHub Pages site (https://agentic-ai-review.krri.re.kr/; the custom
 domain is set in the repository's Settings > Pages): `.github/workflows/deploy-pages.yml` checks

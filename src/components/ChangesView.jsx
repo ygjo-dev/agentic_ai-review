@@ -107,6 +107,7 @@ function ChangeSummary({ entry }) {
 }
 
 export default function ChangesView({ entry }) {
+  const presentation = (entry.after ?? entry.before)?.presentation ?? 'default'
   return (
     <article>
       <h2>{entry.title}</h2>
@@ -130,8 +131,8 @@ export default function ChangesView({ entry }) {
           {!entry.before && <p className="notice">New diagram in this version.</p>}
           {!entry.after && <p className="notice">Diagram removed in this version.</p>}
           <Legend />
-          <div className="diagram-canvas">
-            <MermaidDiagram source={entry.mermaid} />
+          <div className={`diagram-canvas ${presentation}`}>
+            <MermaidDiagram source={entry.mermaid} presentation={presentation} />
           </div>
           <ChangeSummary entry={entry} />
         </>

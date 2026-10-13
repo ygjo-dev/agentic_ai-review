@@ -3,7 +3,14 @@ import mermaid from '../mermaid.js'
 
 let renderSeq = 0
 
-export default function MermaidDiagram({ source }) {
+// Per-diagram Mermaid settings, prepended at render time only. Schema diagrams are
+// field lists, so their labels wrap later than the global 340px.
+const DIRECTIVES = {
+  schema: '%%{init: {"flowchart": {"wrappingWidth": 640}}}%%\n',
+}
+
+export default function MermaidDiagram({ source, presentation = 'default' }) {
+  const rendered = (DIRECTIVES[presentation] ?? '') + source
   const [result, setResult] = useState({ source: null, svg: '', error: null })
 
   useEffect(() => {
@@ -12,22 +19,22 @@ export default function MermaidDiagram({ source }) {
     const id = `review-diagram-${++renderSeq}`
 
     mermaid
-      .render(id, source)
+      .render(id, rendered)
       .then(({ svg }) => {
-        if (!cancelled) setResult({ source, svg, error: null })
+        if (!cancelled) setResult({ source: rendered, svg, error: null })
       })
       .catch((error) => {
         // Mermaid can leave its temporary error node in <body>.
         document.getElementById(`d${id}`)?.remove()
-        if (!cancelled) setResult({ source, svg: '', error: error?.message ?? String(error) })
+        if (!cancelled) setResult({ source: rendered, svg: '', error: error?.message ?? String(error) })
       })
 
     return () => {
       cancelled = true
     }
-  }, [source])
+  }, [rendered])
 
-  if (result.source !== source) {
+  if (result.source !== rendered) {
     return <div className="diagram-status">Rendering…</div>
   }
   if (result.error) {
