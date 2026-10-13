@@ -1,0 +1,104 @@
+# Builds the static viewer from the agentic_ai Review Source and publishes dist/
+# to GitHub Pages. Pull requests only build; main pushes (and manual runs on main) deploy.
+name: Deploy Pages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Branch of ygjo-dev/agentic_ai whose dev/review is published.
+  AGENTIC_AI_REF: develop
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: build-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - name: Checkout agentic_ai-review
+        uses: actions/checkout@v7
+        with:
+          path: agentic_ai-review
+          persist-credentials: false
+
+      # Full history: Review Version history is read from agentic_ai git commits.
+      - name: Checkout agentic_ai
+        uses: actions/checkout@v7
+        with:
+          repository: ygjo-dev/agentic_ai
+          ref: ${{ env.AGENTIC_AI_REF }}
+          path: agentic_ai
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: agentic_ai-review/package-lock.json
+
+      - name: Install
+        working-directory: agentic_ai-review
+        run: npm ci
+
+      - name: Lint
+        working-directory: agentic_ai-review
+        run: npm run lint
+
+      - name: Build
+        working-directory: agentic_ai-review
+        env:
+          AGENTIC_AI_REVIEW_SOURCE_ROOT: ${{ github.workspace }}/agentic_ai
+        run: npm run build
+
+      # dist/ is public: refuse to publish anything that looks like a credential.
+      - name: Scan dist for credentials
+        working-directory: agentic_ai-review
+        run: |
+          test -f dist/index.html
+          if grep -rEnI -o \
+            -e '-----BEGIN [A-Z ]*PRIVATE KEY-----' \
+            -e 'gh[pousr]_[A-Za-z0-9]{36}' \
+            -e 'github_pat_[A-Za-z0-9_]{22,}' \
+            -e 'AKIA[0-9A-Z]{16}' \
+            -e 'AIza[0-9A-Za-z_-]{35}' \
+            -e 'xox[abprs]-[A-Za-z0-9-]{10,}' \
+            -e '\bsk-(ant-|proj-)?[A-Za-z0-9_-]{20,}' \
+            -e '\bhf_[A-Za-z0-9]{30,}' \
+            -e 'eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.' \
+            dist; then
+            echo "::error::credential-like string in dist/"
+            exit 1
+          fi
+
+      - name: Upload Pages artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: agentic_ai-review/dist
+
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
