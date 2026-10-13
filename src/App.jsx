@@ -55,9 +55,9 @@ function useUrlState() {
 
 function badgeFor(entry) {
   if (entry.error) return { text: 'Error', kind: 'error' }
-  if (!entry.before) return { text: 'New', kind: 'changed' }
-  if (!entry.after) return { text: 'Removed', kind: 'changed' }
-  if (entry.diff.count > 0) return { text: String(entry.diff.count), kind: 'changed' }
+  if (!entry.before) return { text: 'New', kind: 'count' }
+  if (!entry.after) return { text: 'Removed', kind: 'count' }
+  if (entry.diff.count > 0) return { text: String(entry.diff.count), kind: 'count' }
   return { text: 'No change', kind: 'none' }
 }
 

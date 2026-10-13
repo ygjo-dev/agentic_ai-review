@@ -4,10 +4,8 @@
   --added-bg: #e7f5ea;
   --removed: #b42318;
   --removed-bg: #fdecec;
-  --changed: #a15c00;
-  --changed-bg: #fff4dc;
-  --context: #9aa0a6;
-  --context-bg: #f3f4f6;
+  --notice: #a15c00;
+  --notice-bg: #fff4dc;
   --panel: #ffffff;
   --border: #dde1e6;
   --text: #1f2328;
@@ -141,9 +139,9 @@ body {
 .notice {
   margin: 0 0 12px;
   padding: 6px 10px;
-  color: var(--changed);
-  background: var(--changed-bg);
-  border: 1px solid var(--changed);
+  color: var(--notice);
+  background: var(--notice-bg);
+  border: 1px solid var(--notice);
   border-radius: 6px;
   font-size: 0.88rem;
 }
@@ -207,10 +205,10 @@ body {
   white-space: nowrap;
 }
 
-.nav-badge.changed {
-  color: var(--changed);
-  background: var(--changed-bg);
-  border: 1px solid var(--changed);
+.nav-badge.count {
+  color: var(--accent);
+  background: var(--accent-bg);
+  border: 1px solid var(--accent);
 }
 
 .nav-badge.none {
@@ -340,22 +338,13 @@ body {
   border-style: dashed;
 }
 
-.legend-swatch.changed {
-  color: var(--changed);
-  background: var(--changed-bg);
-}
-
-.legend-swatch.context {
-  color: var(--context);
-  background: var(--context-bg);
+/* Mermaid's default node look, as in Full. */
+.legend-swatch.unchanged {
+  color: #9370db;
+  background: #ececff;
   border-width: 1px;
 }
 
-.changes-size {
-  margin: 0 0 12px;
-  color: var(--muted);
-  font-size: 0.85rem;
-}
 
 .change-summary {
   display: grid;
@@ -399,8 +388,9 @@ body {
   color: var(--removed);
 }
 
-.change-item.changed .change-mark {
-  color: var(--changed);
+.change-modified {
+  color: var(--muted);
+  font-size: 0.85rem;
 }
 
 .metadata-note {

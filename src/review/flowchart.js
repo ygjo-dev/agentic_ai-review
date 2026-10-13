@@ -62,11 +62,11 @@ export function parseFlowchart(source) {
     if ((match = SUBGRAPH.exec(line))) {
       const [, id, label] = match
       if (subgraphs.has(id) || nodes.has(id)) fail(lineNo, `id "${id}" is declared twice`)
-      subgraphs.set(id, { id, label, parent: stack.at(-1) ?? null })
+      subgraphs.set(id, { id, label, parent: stack.at(-1) ?? null, line: lineNo, endLine: null })
       stack.push(id)
     } else if (line === 'end') {
       if (stack.length === 0) fail(lineNo, '"end" without an open subgraph')
-      stack.pop()
+      subgraphs.get(stack.pop()).endLine = lineNo
     } else if ((match = NODE.exec(line))) {
       const [, id, open, label, close] = match
       const known = SHAPES[open]

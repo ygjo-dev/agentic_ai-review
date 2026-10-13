@@ -4,8 +4,7 @@ import MermaidDiagram from './MermaidDiagram.jsx'
 const LEGEND = [
   ['added', 'Added'],
   ['removed', 'Removed'],
-  ['changed', 'Changed'],
-  ['context', 'Context'],
+  ['unchanged', 'Unchanged'],
 ]
 
 function Legend() {
@@ -37,10 +36,6 @@ function edgeText(edge, name) {
   return `${name(edge.from)} ${arrow} ${name(edge.to)}${label} (${edge.style})`
 }
 
-function fieldChanges(changes) {
-  return changes.map(({ field, before, after }) => `${field} "${before}" → "${after}"`).join('; ')
-}
-
 function SummarySection({ title, status, items }) {
   return (
     <section className="change-section" data-testid={`summary-${title.toLowerCase().replace(' ', '-')}`}>
@@ -49,12 +44,15 @@ function SummarySection({ title, status, items }) {
         <p className="change-none">None</p>
       ) : (
         <ul>
-          {items.map((text) => (
+          {items.map(({ text, modified }) => (
             <li key={text} className={`change-item ${status}`}>
               <span className="change-mark" aria-hidden="true">
                 {STATUS_MARK[status]}
               </span>
-              {text}
+              <span>
+                {text}
+                {modified && <span className="change-modified"> · {modified}</span>}
+              </span>
             </li>
           ))}
         </ul>
@@ -63,25 +61,46 @@ function SummarySection({ title, status, items }) {
   )
 }
 
+// A modified node or edge is listed twice: its old form as removed, its new form as added.
 function ChangeSummary({ entry }) {
   const { diff } = entry
   const name = nodeNamer(entry)
-  const nodeText = (node) => `${displayName(node)} (${node.id})`
+  const node = (n, modified) => ({ text: `${displayName(n)} (${n.id})`, modified })
+  const edge = (e, modified) => ({ text: edgeText(e, name), modified })
+  const fields = (changes) => changes.map((c) => c.field).join(', ')
   return (
     <div className="change-summary" aria-label="Change summary">
-      <SummarySection title="Added nodes" status="added" items={diff.addedNodes.map(nodeText)} />
-      <SummarySection title="Removed nodes" status="removed" items={diff.removedNodes.map(nodeText)} />
       <SummarySection
-        title="Changed nodes"
-        status="changed"
-        items={diff.changedNodes.map((c) => `${nodeText(c.after)}: ${fieldChanges(c.changes)}`)}
+        title="Added nodes"
+        status="added"
+        items={[
+          ...diff.addedNodes.map((n) => node(n)),
+          ...diff.changedNodes.map((c) => node(c.after, `new ${fields(c.changes)}`)),
+        ]}
       />
-      <SummarySection title="Added edges" status="added" items={diff.addedEdges.map((e) => edgeText(e, name))} />
-      <SummarySection title="Removed edges" status="removed" items={diff.removedEdges.map((e) => edgeText(e, name))} />
       <SummarySection
-        title="Changed edges"
-        status="changed"
-        items={diff.changedEdges.map((c) => `${edgeText(c.after, name)}: ${fieldChanges(c.changes)}`)}
+        title="Removed nodes"
+        status="removed"
+        items={[
+          ...diff.removedNodes.map((n) => node(n)),
+          ...diff.changedNodes.map((c) => node(c.before, `previous ${fields(c.changes)}`)),
+        ]}
+      />
+      <SummarySection
+        title="Added edges"
+        status="added"
+        items={[
+          ...diff.addedEdges.map((e) => edge(e)),
+          ...diff.changedEdges.map((c) => edge(c.after, `new ${fields(c.changes)}`)),
+        ]}
+      />
+      <SummarySection
+        title="Removed edges"
+        status="removed"
+        items={[
+          ...diff.removedEdges.map((e) => edge(e)),
+          ...diff.changedEdges.map((c) => edge(c.before, `previous ${fields(c.changes)}`)),
+        ]}
       />
     </div>
   )
@@ -111,11 +130,7 @@ export default function ChangesView({ entry }) {
           {!entry.before && <p className="notice">New diagram in this version.</p>}
           {!entry.after && <p className="notice">Diagram removed in this version.</p>}
           <Legend />
-          <p className="changes-size" data-testid="changes-size">
-            Changed-only view: {entry.size.nodes} of {entry.size.canonicalNodes} nodes ·{' '}
-            {entry.size.edges} edges shown (full diagram has {entry.size.canonicalEdges})
-          </p>
-          <div className="diagram-canvas changes-canvas">
+          <div className="diagram-canvas">
             <MermaidDiagram source={entry.mermaid} />
           </div>
           <ChangeSummary entry={entry} />
