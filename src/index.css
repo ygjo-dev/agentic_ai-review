@@ -273,6 +273,36 @@ body {
   text-align: left;
 }
 
+/* Schema presentation: stage boxes white with a neutral border (diff-coloured nodes
+   keep their own fill), field names dark blue monospace, IN / OUT in the accent. */
+.diagram-canvas.schema g.node:not(.diffAdded):not(.diffRemoved) :is(rect, path, polygon),
+.compare-pane-body.schema g.node:not(.diffAdded):not(.diffRemoved) :is(rect, path, polygon) {
+  fill: #ffffff !important;
+  stroke: #94a3b8 !important;
+}
+
+:is(.diagram-canvas, .compare-pane-body).schema .nodeLabel {
+  color: #4b5563;
+}
+
+:is(.diagram-canvas, .compare-pane-body).schema .nodeLabel b {
+  color: #111827;
+}
+
+:is(.diagram-canvas, .compare-pane-body).schema .nodeLabel code {
+  color: #1e3a8a;
+}
+
+:is(.diagram-canvas, .compare-pane-body).schema .nodeLabel u {
+  color: var(--accent);
+  text-decoration: none;
+  letter-spacing: 0.04em;
+}
+
+:is(.diagram-canvas, .compare-pane-body).schema .nodeLabel small {
+  color: #6b7280;
+}
+
 /* Changes: Before | After, each its own version's full diagram. Below the grid's
    minimum width the comparison scrolls as a whole instead of shrinking. */
 .compare-scroll {

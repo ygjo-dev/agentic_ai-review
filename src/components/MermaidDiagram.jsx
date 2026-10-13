@@ -9,8 +9,18 @@ const DIRECTIVES = {
   schema: '%%{init: {"flowchart": {"wrappingWidth": 640}}}%%\n',
 }
 
+// Schema diagrams read like code: field names in <code>, IN / OUT marked. Only
+// standard tags (sized the same where Mermaid measures them); colours are CSS.
+const FIELD = /(^|<br\/>|")((?:<(?:ins|del)>)?)((?:&nbsp;)*)([A-Za-z_][\w.]*\??)(: )/g
+
+function decorateSchema(source) {
+  return source.replace(FIELD, '$1$2$3<code>$4</code>$5').replace(/<b>(IN|OUT)<\/b>/g, '<b><u>$1</u></b>')
+}
+
+const DECORATE = { schema: decorateSchema }
+
 export default function MermaidDiagram({ source, presentation = 'default' }) {
-  const rendered = (DIRECTIVES[presentation] ?? '') + source
+  const rendered = (DIRECTIVES[presentation] ?? '') + (DECORATE[presentation] ?? ((text) => text))(source)
   const [result, setResult] = useState({ source: null, svg: '', error: null })
 
   useEffect(() => {
