@@ -63,7 +63,9 @@ function Pane({ side, snapshot, label, source, presentation, sync, index }) {
         <strong>
           {side === 'before' ? 'Before' : 'After'} · {label}
         </strong>
-        <span className="compare-pane-version">{commitLine(snapshot)}</span>
+        <span className="compare-pane-version" title={commitLine(snapshot)}>
+          {commitLine(snapshot)}
+        </span>
       </header>
       <div
         className={`compare-pane-body ${presentation}`}

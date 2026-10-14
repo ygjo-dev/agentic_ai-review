@@ -192,4 +192,6 @@ test('the Changes view renders no Added / Removed / Changed nodes / edges lists'
   assert.match(html, /data-testid="pane-before"/)
   assert.match(html, /data-testid="pane-after"/)
   assert.match(html, /class="legend"/)
+  // The version line is cut with an ellipsis when long; the whole line stays readable on hover.
+  assert.match(html, /<span class="compare-pane-version" title="abc1234 · s">abc1234 · s<\/span>/)
 })
