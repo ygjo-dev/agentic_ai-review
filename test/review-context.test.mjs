@@ -1,7 +1,7 @@
 // The Review Web shows one develop update: Before = develop just before it, After =
 // develop just after it. Checked on a throwaway git fixture (origin + clone).
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -104,5 +104,50 @@ test('the viewer labels both snapshots with the branch and has no PR, fork point
     assert.doesNotMatch(text, /fork point|PR #|prNumber|headBranch|baseBranch|<select|Compare from/, file)
   }
   const app = fs.readFileSync(path.join(viewer, 'src/App.jsx'), 'utf8')
-  assert.match(app, /fromLabel=\{context\.branch\} toLabel=\{context\.branch\}/)
+  assert.match(app, /fromLabel=\{context\.branch\}\s+toLabel=\{context\.branch\}/)
+})
+
+// develop rewritten by a force push (only inside this throwaway fixture): the old develop
+// head is on no branch, so a fresh clone lacks it and the resolver fetches it by SHA.
+test('a Before dropped by a develop rewrite is fetched by SHA with the token kept out of output', () => {
+  const origin = path.join(tmp, 'rewrite.git')
+  const writer = path.join(tmp, 'rewrite-writer')
+  const fresh = path.join(tmp, 'rewrite-fresh')
+  const at = (dir) => (...args) => execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8' }).trim()
+  execFileSync('git', ['init', '-q', '--bare', '-b', 'develop', origin])
+  at(origin)('config', 'uploadpack.allowAnySHA1InWant', 'true')
+  execFileSync('git', ['clone', '-q', origin, writer])
+  const w = at(writer)
+  w('config', 'user.name', 'fixture'); w('config', 'user.email', 'fixture@example.invalid'); w('checkout', '-q', '-b', 'develop')
+  const save = work; work = writer
+  const base = commit('R0', 'one'); const dropped = commit('R1', 'two')
+  w('push', '-q', 'origin', 'develop')
+  w('reset', '-q', '--hard', base)
+  const rewritten = commit('R2', 'three')
+  w('push', '-q', '--force', 'origin', 'develop')
+  work = save
+  execFileSync('git', ['clone', '-q', '--no-local', origin, fresh])
+  assert.throws(() => at(fresh)('cat-file', '-e', `${dropped}^{commit}`))
+
+  const token = 'fixture-token-value-not-real'
+  const cli = (before, after) => spawnSync(process.execPath, [path.join(viewer, 'scripts/resolve-review-context.mjs')], {
+    encoding: 'utf8',
+    env: { ...process.env, GITHUB_ENV: '', GITHUB_ACTIONS: '', AGENTIC_AI_REVIEW_SOURCE_ROOT: fresh, AGENTIC_AI_READ_TOKEN: token, INPUT_BEFORE_SHA: before, INPUT_AFTER_SHA: after },
+  })
+  const ok = cli(dropped, rewritten)
+  assert.equal(ok.status, 0, ok.stderr)
+  assert.match(ok.stdout, new RegExp(`review: develop ${dropped.slice(0, 7)} -> ${rewritten.slice(0, 7)}`))
+  assert.ok(!(ok.stdout + ok.stderr).includes(token))
+  assert.ok(!(ok.stdout + ok.stderr).includes(Buffer.from(`x-access-token:${token}`).toString('base64')))
+  assert.doesNotMatch(fs.readFileSync(path.join(fresh, '.git/config'), 'utf8'), /extraheader|AUTHORIZATION/i)
+  const { data } = readReview(fresh, { env: { REVIEW_BEFORE_SHA: dropped, REVIEW_AFTER_SHA: rewritten, REVIEW_BRANCH: 'develop' } })
+  assert.deepEqual([data.before.sha, data.after.sha], [dropped, rewritten])
+
+  const missing = cli('0123456789abcdef0123456789abcdef01234567', rewritten)
+  assert.notEqual(missing.status, 0)
+  assert.match(missing.stderr, /Before 0123456 is not in the clone and could not be fetched/)
+  assert.ok(!(missing.stdout + missing.stderr).includes(token))
+  const afterGone = cli(base, dropped.replace(/^./, (c) => (c === 'a' ? 'b' : 'a')))
+  assert.notEqual(afterGone.status, 0)
+  assert.match(afterGone.stderr, /is not a commit/)
 })

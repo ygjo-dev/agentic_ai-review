@@ -5,7 +5,9 @@
 //             (merge, squash, rebase or direct push), straight from the push event.
 //   baseline  no pair given: Before = develop HEAD, no After.
 //
-// Both commits must be on develop. Nothing here looks at feature branches or pull requests.
+// After must be on develop. Before is on develop too, unless a rewrite of develop (force
+// push) dropped it: then it is on no branch at all and is fetched by SHA. A commit that
+// still sits on another branch is never a develop state. Nothing here looks at pull requests.
 import fs from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { commitInfo, git, isAncestor } from '../plugins/reviewGit.js'
@@ -26,19 +28,38 @@ export function resolveContext(root, { beforeSha = '', afterSha = '' } = {}, { b
   const before = commitInfo(root, beforeSha)
   const after = commitInfo(root, afterSha)
   if (before.sha === after.sha) fail(`Before and After are the same commit ${before.shortSha}; there is no ${branch} update to review`)
-  for (const [name, commit] of [['Before', before], ['After', after]]) {
-    if (!isAncestor(root, commit.sha, develop.sha)) fail(`${name} ${commit.shortSha} is not on ${branch}`)
+  if (!isAncestor(root, after.sha, develop.sha)) fail(`After ${after.shortSha} is not on ${branch}`)
+  if (!isAncestor(root, before.sha, develop.sha) && onSomeBranch(root, before.sha)) {
+    fail(`Before ${before.shortSha} is not on ${branch} (it is on another branch)`)
   }
   return { beforeSha: before.sha, afterSha: after.sha, branch }
 }
 
-// A commit dropped from every ref (e.g. by a force push) is not in a fresh clone.
-function fetchIfMissing(root, sha) {
+function onSomeBranch(root, sha) {
+  return git(root, ['for-each-ref', '--contains', sha, '--format=%(refname)', 'refs/heads', 'refs/remotes']).trim() !== ''
+}
+
+// Before dropped from develop by a force push is in no branch, so a fresh clone lacks it.
+// The source repository is private: the read token goes to this one git process as an
+// extra header in its environment (never in argv, the URL or .git/config).
+export function fetchBeforeIfMissing(root, sha, token = '') {
   if (!SHA.test(sha)) return
   try {
     git(root, ['cat-file', '-e', `${sha}^{commit}`])
+    return
   } catch {
-    git(root, ['fetch', '--quiet', 'origin', sha])
+    // not in the clone: fetch it below
+  }
+  let env
+  if (token) {
+    const basic = Buffer.from(`x-access-token:${token}`).toString('base64')
+    if (process.env.GITHUB_ACTIONS === 'true') console.log(`::add-mask::${basic}`)
+    env = { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'http.extraheader', GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${basic}` }
+  }
+  try {
+    git(root, ['fetch', '--quiet', 'origin', sha], { env })
+  } catch {
+    fail(`Before ${sha.slice(0, 7)} is not in the clone and could not be fetched from origin`)
   }
 }
 
@@ -48,8 +69,7 @@ async function main() {
   if (!root) fail('AGENTIC_AI_REVIEW_SOURCE_ROOT is not set')
   const input = { beforeSha: (env.INPUT_BEFORE_SHA || '').trim(), afterSha: (env.INPUT_AFTER_SHA || '').trim() }
   const branch = (env.INPUT_BRANCH || '').trim() || 'develop'
-  fetchIfMissing(root, input.beforeSha)
-  fetchIfMissing(root, input.afterSha)
+  fetchBeforeIfMissing(root, input.beforeSha, env.AGENTIC_AI_READ_TOKEN || '')
   const context = resolveContext(root, input, { branch })
   const lines = [
     `REVIEW_BEFORE_SHA=${context.beforeSha}`,

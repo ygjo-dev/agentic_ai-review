@@ -10,13 +10,15 @@ function fail(message) {
   throw new Error(`[review-git] ${message}`)
 }
 
-// Arguments go to git as an argv array, never through a shell.
-export function git(root, args) {
+// Arguments go to git as an argv array, never through a shell. `env` adds variables
+// for this one git process only (e.g. a credential header for a single fetch).
+export function git(root, args, { env } = {}) {
   try {
     return execFileSync('git', ['-C', root, ...args], {
       encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024,
       stdio: ['ignore', 'pipe', 'pipe'],
+      env: env ? { ...process.env, ...env } : process.env,
     })
   } catch (error) {
     if (error.code === 'ENOENT') fail('git executable not found on PATH')

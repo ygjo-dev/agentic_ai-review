@@ -79,6 +79,8 @@ jobs:
         working-directory: agentic_ai-review
         env:
           AGENTIC_AI_REVIEW_SOURCE_ROOT: ${{ github.workspace }}/agentic_ai
+          # Only for fetching a Before that a force push dropped from every branch.
+          AGENTIC_AI_READ_TOKEN: ${{ secrets.AGENTIC_AI_READ_TOKEN }}
           INPUT_BEFORE_SHA: ${{ inputs.before_sha }}
           INPUT_AFTER_SHA: ${{ inputs.after_sha }}
           INPUT_BRANCH: ${{ env.AGENTIC_AI_REF }}
