@@ -1,6 +1,6 @@
 // Semantic diff between two parsed flowcharts (see flowchart.js) and the
 // Before / After diagrams that show it side by side. Pure module.
-import { SHAPE_BRACKETS } from './flowchart.js'
+import { ARROW_SYNTAX, SHAPE_BRACKETS } from './flowchart.js'
 
 const EMPTY_GRAPH = { direction: null, nodes: [], edges: [], subgraphs: [] }
 
@@ -92,11 +92,11 @@ export function diffGraphs(before, after) {
 const DIFF_STYLE = {
   added: {
     node: 'fill:#e7f5ea,stroke:#1f7a35,stroke-width:3px,color:#123d1c',
-    link: 'stroke:#1f7a35,stroke-width:3px',
+    link: 'stroke:#1f7a35,stroke-width:3px,color:#1f7a35',
   },
   removed: {
     node: 'fill:#fdecec,stroke:#b42318,stroke-width:3px,stroke-dasharray:6 4,color:#5c140e',
-    link: 'stroke:#b42318,stroke-width:3px',
+    link: 'stroke:#b42318,stroke-width:3px,color:#b42318',
   },
 }
 
@@ -142,15 +142,26 @@ const LINE_TAG = { removed: 'del', added: 'ins' }
 
 function markedLabel(lines) {
   return lines
-    .map(({ line, status }) => (LINE_TAG[status] ? `<${LINE_TAG[status]}>${line}</${LINE_TAG[status]}>` : line))
+    .map(({ line, status }) => (LINE_TAG[status] && line ? `<${LINE_TAG[status]}>${line}</${LINE_TAG[status]}>` : line))
     .join('<br/>')
 }
 
+// The canonical source line of one edge, with its label replaced.
+function edgeLine(indent, edge, label) {
+  const syntax = ARROW_SYNTAX[`${edge.style}/${edge.arrow}`]
+  return `${indent}${edge.from} ${syntax}${label ? `|"${label}"|` : ''} ${edge.to}`
+}
+
+// An edge whose line style or direction changed is drawn differently, so it counts as
+// removed + added like a node whose shape changed. A label-only change is not.
+const STRUCTURAL_EDGE_FIELDS = new Set(['style', 'arrow'])
+
 // Viewer-only Mermaid for one side of Changes: that version's canonical text,
 // so it lays out like its Full view, plus styles for what changed on this side.
-// side 'before': removed nodes and edges red; 'after': added ones green.
-// A node whose shape changed counts as removed + added. A node whose label alone
-// changed stays neutral: only its changed lines are marked, <del> before / <ins> after.
+// side 'before': removed nodes and edges red; 'after': added ones green (path, arrowhead
+// and label). A node whose shape changed, or an edge whose line style / direction changed,
+// counts as removed + added. A node or edge whose label alone changed stays neutral: only
+// its changed label lines are marked, <del> before / <ins> after.
 // The .mmd sources never carry any of this.
 export function sideMermaid(diagram, diff, side) {
   const removedSide = side === 'before'
@@ -178,11 +189,19 @@ export function sideMermaid(diagram, diff, side) {
     lines[index] = `${indent}${node.id}${open}"${markedLabel(removedSide ? labels.before : labels.after)}"${close}`
   }
 
-  const styled = new Set(
-    removedSide
-      ? [...diff.removedEdges, ...diff.changedEdges.map((c) => c.before)]
-      : [...diff.addedEdges, ...diff.changedEdges.map((c) => c.after)],
-  )
+  const styled = new Set(removedSide ? diff.removedEdges : diff.addedEdges)
+  for (const change of diff.changedEdges) {
+    const edge = removedSide ? change.before : change.after
+    if (change.changes.some((c) => STRUCTURAL_EDGE_FIELDS.has(c.field))) {
+      styled.add(edge)
+      continue
+    }
+    if (!edge.label) continue
+    const labels = diffLabelLines(change.before.label, change.after.label)
+    const index = edge.line - 1
+    const indent = lines[index].match(/^(\s*)/)[1]
+    lines[index] = edgeLine(indent, edge, markedLabel(removedSide ? labels.before : labels.after))
+  }
   if (wholeNodes.length) {
     lines.push(`    classDef ${className} ${style.node}`, `    class ${wholeNodes.map((n) => n.id).join(',')} ${className}`)
   }
@@ -190,12 +209,6 @@ export function sideMermaid(diagram, diff, side) {
     if (styled.has(edge)) lines.push(`    linkStyle ${index} ${style.link}`)
   })
   return lines.join('\n') + '\n'
-}
-
-// First line of a Mermaid label without markup, for text summaries.
-export function displayName(node) {
-  const text = node.label.split(/<br\s*\/?>/i)[0].replace(/<[^>]+>/g, '').trim()
-  return text || node.id
 }
 
 const METADATA_FIELDS = ['title', 'summary', 'file', 'watch', 'presentation']

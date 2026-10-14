@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import { displayName, STATUS_MARK } from '../review/changes.js'
+import { STATUS_MARK } from '../review/changes.js'
 import MermaidDiagram from './MermaidDiagram.jsx'
 
 function Legend() {
@@ -22,67 +22,6 @@ function Legend() {
         Unchanged
       </li>
     </ul>
-  )
-}
-
-function nodeNamer(entry) {
-  const nodes = new Map()
-  for (const graph of [entry.before?.graph, entry.after?.graph]) {
-    for (const node of graph?.nodes ?? []) nodes.set(node.id, node)
-  }
-  return (id) => (nodes.has(id) ? displayName(nodes.get(id)) : id)
-}
-
-function edgeText(edge, name) {
-  const arrow = edge.arrow === 'bidirectional' ? '↔' : '→'
-  const label = edge.label ? ` — ${edge.label.replace(/<br\s*\/?>/gi, ' ')}` : ''
-  return `${name(edge.from)} ${arrow} ${name(edge.to)}${label} (${edge.style})`
-}
-
-function SummarySection({ title, status, items }) {
-  return (
-    <section className="change-section">
-      <h3>{title}</h3>
-      {items.length === 0 ? (
-        <p className="change-none">None</p>
-      ) : (
-        <ul>
-          {items.map((text) => (
-            <li key={text} className={`change-item ${status}`}>
-              <span className="change-mark" aria-hidden="true">
-                {STATUS_MARK[status] ?? '~'}
-              </span>
-              <span>{text}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
-  )
-}
-
-function ChangeSummary({ entry }) {
-  const { diff } = entry
-  const name = nodeNamer(entry)
-  const node = (n) => `${displayName(n)} (${n.id})`
-  const fields = (changes) => changes.map((c) => c.field).join(', ')
-  return (
-    <div className="change-summary" aria-label="Change summary">
-      <SummarySection title="Added nodes" status="added" items={diff.addedNodes.map(node)} />
-      <SummarySection title="Removed nodes" status="removed" items={diff.removedNodes.map(node)} />
-      <SummarySection
-        title="Changed nodes"
-        status="changed"
-        items={diff.changedNodes.map((c) => `${node(c.after)}: ${fields(c.changes)}`)}
-      />
-      <SummarySection title="Added edges" status="added" items={diff.addedEdges.map((e) => edgeText(e, name))} />
-      <SummarySection title="Removed edges" status="removed" items={diff.removedEdges.map((e) => edgeText(e, name))} />
-      <SummarySection
-        title="Changed edges"
-        status="changed"
-        items={diff.changedEdges.map((c) => `${edgeText(c.after, name)}: ${fields(c.changes)}`)}
-      />
-    </div>
   )
 }
 
@@ -180,7 +119,6 @@ export default function ChangesView({ entry, from, to, fromLabel, toLabel, toolb
             <Pane side="before" index={0} snapshot={from} label={fromLabel} source={entry.panes.before} presentation={presentation} sync={sync} />
             <Pane side="after" index={1} snapshot={to} label={toLabel} source={entry.panes.after} presentation={presentation} sync={sync} />
           </div>
-          {entry.diff.count > 0 && <ChangeSummary entry={entry} />}
         </>
       )}
     </article>

@@ -295,22 +295,9 @@ body {
   text-align: left;
 }
 
-/* Schema presentation: stage boxes white with a neutral border (diff-coloured nodes
-   keep their own fill), field names dark blue monospace, IN / OUT in the accent. */
-.diagram-canvas.schema g.node:not(.diffAdded):not(.diffRemoved) :is(rect, path, polygon),
-.compare-pane-body.schema g.node:not(.diffAdded):not(.diffRemoved) :is(rect, path, polygon) {
-  fill: #ffffff !important;
-  stroke: #94a3b8 !important;
-}
-
-:is(.diagram-canvas, .compare-pane-body).schema .nodeLabel {
-  color: #4b5563;
-}
-
-:is(.diagram-canvas, .compare-pane-body).schema .nodeLabel b {
-  color: #111827;
-}
-
+/* Schema presentation changes text only (field names monospace dark blue, IN / READ / OUT
+   in the accent). Node shape, fill, border, title colour and edges stay the diagram theme,
+   the same as every other diagram, so Runtime and Data read as the same kind of box. */
 :is(.diagram-canvas, .compare-pane-body).schema .nodeLabel code {
   color: #1e3a8a;
 }
@@ -319,10 +306,6 @@ body {
   color: var(--accent);
   text-decoration: none;
   letter-spacing: 0.04em;
-}
-
-:is(.diagram-canvas, .compare-pane-body).schema .nodeLabel small {
-  color: #6b7280;
 }
 
 /* Before | After, each its own snapshot's full diagram fitted to its pane. Narrow
@@ -471,53 +454,6 @@ body {
   border-width: 1px;
 }
 
-
-.change-summary {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 12px 24px;
-  margin-top: 20px;
-}
-
-.change-section h3 {
-  margin: 0 0 4px;
-  font-size: 0.95rem;
-}
-
-.change-section ul {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.change-none {
-  margin: 0;
-  color: var(--muted);
-}
-
-.change-item {
-  display: flex;
-  gap: 6px;
-}
-
-.change-mark {
-  flex: none;
-  width: 1ch;
-  font-weight: 700;
-}
-
-.change-item.added .change-mark {
-  color: var(--added);
-}
-
-.change-item.removed .change-mark {
-  color: var(--removed);
-}
-
-.change-modified {
-  color: var(--muted);
-  font-size: 0.85rem;
-}
 
 .metadata-note {
   margin: 16px 0 0;
