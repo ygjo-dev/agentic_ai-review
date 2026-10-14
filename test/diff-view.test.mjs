@@ -11,7 +11,7 @@ import { after, before, test } from 'node:test'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { createServer } from 'vite'
-import { compareSnapshots, diffGraphs, sideMermaid } from '../src/review/changes.js'
+import { changeBadge, compareSnapshots, diffGraphs, sideMermaid } from '../src/review/changes.js'
 import { parseFlowchart } from '../src/review/flowchart.js'
 
 const viewer = path.resolve(import.meta.dirname, '..')
@@ -70,6 +70,16 @@ test('the diff still counts every change (the badge)', () => {
   assert.deepEqual(diff.removedNodes.map((n) => n.id), ['C'])
   assert.deepEqual(diff.changedNodes.map((c) => c.after.id), ['B'])
   assert.equal(diff.count, 9)
+})
+
+test('the badge counts in English: 1 change, 2 changes, No change', () => {
+  const entry = (count) => ({ before: {}, after: {}, diff: { count } })
+  assert.deepEqual(changeBadge(entry(1)), { text: '1 change', kind: 'count' })
+  assert.deepEqual(changeBadge(entry(2)), { text: '2 changes', kind: 'count' })
+  assert.deepEqual(changeBadge(entry(0)), { text: 'No change', kind: 'none' })
+  assert.deepEqual(changeBadge({ ...entry(0), before: null }), { text: 'New', kind: 'count' })
+  assert.deepEqual(changeBadge({ ...entry(0), after: null }), { text: 'Removed', kind: 'count' })
+  assert.deepEqual(changeBadge({ error: 'x' }), { text: 'Error', kind: 'error' })
 })
 
 test('added node: whole green on After, absent on Before', () => {

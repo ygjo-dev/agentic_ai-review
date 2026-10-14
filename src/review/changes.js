@@ -247,3 +247,12 @@ export function compareSnapshots(fromVersion, toVersion) {
     }
   })
 }
+
+// The tab badge for one compareSnapshots entry.
+export function changeBadge(entry) {
+  if (entry.error) return { text: 'Error', kind: 'error' }
+  if (!entry.before) return { text: 'New', kind: 'count' }
+  if (!entry.after) return { text: 'Removed', kind: 'count' }
+  if (entry.diff.count > 0) return { text: `${entry.diff.count} ${entry.diff.count === 1 ? 'change' : 'changes'}`, kind: 'count' }
+  return { text: 'No change', kind: 'none' }
+}

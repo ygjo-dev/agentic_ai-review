@@ -3,7 +3,7 @@ import review from 'virtual:review-source'
 import ChangesView from './components/ChangesView.jsx'
 import CompareBasis from './components/CompareBasis.jsx'
 import MermaidDiagram from './components/MermaidDiagram.jsx'
-import { compareSnapshots } from './review/changes.js'
+import { changeBadge, compareSnapshots } from './review/changes.js'
 import { COMPARE_LABELS, DEFAULT_COMPARE, parseCompare } from './review/localCompare.js'
 
 // The build decides what is shown: a baseline (Before only) or one develop update
@@ -16,14 +16,6 @@ const localPairs = import.meta.env.DEV && review.compare ? review.compare : null
 function commitLine(snapshot) {
   if (snapshot.workingTree) return `working tree · ${snapshot.subject}`
   return `${snapshot.shortSha} · ${snapshot.subject}`
-}
-
-function badgeFor(entry) {
-  if (entry.error) return { text: 'Error', kind: 'error' }
-  if (!entry.before) return { text: 'New', kind: 'count' }
-  if (!entry.after) return { text: 'Removed', kind: 'count' }
-  if (entry.diff.count > 0) return { text: `${entry.diff.count} changes`, kind: 'count' }
-  return { text: 'No change', kind: 'none' }
 }
 
 function entriesOf({ before, after }) {
@@ -147,7 +139,7 @@ export default function App() {
       <nav className="diagram-tabs" aria-label="Diagrams">
         <ul>
           {entries.map((entry) => {
-            const badge = after ? badgeFor(entry) : null
+            const badge = after ? changeBadge(entry) : null
             const current = entry.id === selected?.id
             return (
               <li key={entry.id}>
