@@ -1,11 +1,12 @@
 # Builds the static viewer from the agentic_ai Review Source and publishes dist/
-# to GitHub Pages. Pull requests only build; main pushes and dispatches deploy.
+# to GitHub Pages. Only a dispatch deploys; viewer pushes and pull requests only build.
 #
-# What is shown is one review context, never a history:
-#   baseline  Before = agentic_ai develop HEAD, no After
-#   review    Before = fork point of the one review-ready PR, After = its head
-# agentic_ai's Review Web workflow dispatches this with the pair for its PR event;
-# a run without inputs (viewer push, manual run) looks the context up itself.
+# What is shown is one pair of develop states, never a history:
+#   review    Before = develop just before an update, After = develop just after it
+#   baseline  Before = develop HEAD, no After (a dispatch without a pair)
+# agentic_ai's Review Web workflow dispatches the pair from every develop push, and it
+# stays published until the next develop update replaces it. A viewer change is
+# published by the next dispatch (run this workflow by hand with the current pair).
 name: Deploy Pages
 
 on:
@@ -14,24 +15,12 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
-      base_sha:
-        description: Before commit (empty = look the review context up)
+      before_sha:
+        description: develop commit just before the update (empty with after_sha = baseline)
         required: false
         default: ''
-      head_sha:
-        description: After commit (empty = baseline only)
-        required: false
-        default: ''
-      base_branch:
-        description: Branch the review merges into
-        required: false
-        default: develop
-      head_branch:
-        description: Feature branch under review
-        required: false
-        default: ''
-      pr_number:
-        description: Pull request under review
+      after_sha:
+        description: develop commit just after the update (empty = baseline)
         required: false
         default: ''
 
@@ -39,7 +28,7 @@ permissions:
   contents: read
 
 env:
-  # Branch of ygjo-dev/agentic_ai that reviews merge into (the baseline).
+  # Branch of ygjo-dev/agentic_ai whose updates are reviewed.
   AGENTIC_AI_REF: develop
 
 jobs:
@@ -55,7 +44,7 @@ jobs:
           path: agentic_ai-review
           persist-credentials: false
 
-      # Full history: the fork point is merge-base(develop, PR head).
+      # Full history: Before and After are read from develop's commits by SHA.
       - name: Checkout agentic_ai
         uses: actions/checkout@v7
         with:
@@ -80,18 +69,18 @@ jobs:
         working-directory: agentic_ai-review
         run: npm run lint
 
+      - name: Test
+        working-directory: agentic_ai-review
+        run: npm test
+
       # Inputs reach the script as environment variables only, never as shell text.
       - name: Resolve review context
         working-directory: agentic_ai-review
         env:
           AGENTIC_AI_REVIEW_SOURCE_ROOT: ${{ github.workspace }}/agentic_ai
-          AGENTIC_REPO: ygjo-dev/agentic_ai
-          GITHUB_TOKEN: ${{ github.token }}
-          INPUT_BASE_SHA: ${{ inputs.base_sha }}
-          INPUT_HEAD_SHA: ${{ inputs.head_sha }}
-          INPUT_BASE_BRANCH: ${{ inputs.base_branch || env.AGENTIC_AI_REF }}
-          INPUT_HEAD_BRANCH: ${{ inputs.head_branch }}
-          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+          INPUT_BEFORE_SHA: ${{ inputs.before_sha }}
+          INPUT_AFTER_SHA: ${{ inputs.after_sha }}
+          INPUT_BRANCH: ${{ env.AGENTIC_AI_REF }}
         run: node scripts/resolve-review-context.mjs
 
       - name: Build
@@ -121,13 +110,13 @@ jobs:
           fi
 
       - name: Upload Pages artifact
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-pages-artifact@v5
         with:
           path: agentic_ai-review/dist
 
   deploy:
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -143,3 +132,27 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
+
+      # Once the pair is live. A Slack failure never undoes the deploy.
+      - name: Notify Slack
+        if: inputs.after_sha != ''
+        continue-on-error: true
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          BEFORE_SHA: ${{ inputs.before_sha }}
+          AFTER_SHA: ${{ inputs.after_sha }}
+          REVIEW_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "Slack skipped: SLACK_WEBHOOK_URL is not set"
+            echo "### Slack: skipped (SLACK_WEBHOOK_URL not set)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          text=$(printf 'agentic_ai develop review ready\nBefore: %s · %s\nAfter: %s · %s\nReview: %s' \
+            "$AGENTIC_AI_REF" "${BEFORE_SHA:0:7}" "$AGENTIC_AI_REF" "${AFTER_SHA:0:7}" "$REVIEW_URL")
+          if ! jq -n --arg text "$text" '{text: $text}' | curl -fsS -X POST -H 'Content-type: application/json' --data @- "$SLACK_WEBHOOK_URL"; then
+            echo "::error::Slack notification failed"
+            exit 1
+          fi
+          echo "### Slack: sent" >> "$GITHUB_STEP_SUMMARY"

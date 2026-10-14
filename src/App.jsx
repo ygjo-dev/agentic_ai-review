@@ -4,8 +4,8 @@ import ChangesView from './components/ChangesView.jsx'
 import MermaidDiagram from './components/MermaidDiagram.jsx'
 import { compareSnapshots } from './review/changes.js'
 
-// The build decides what is shown: a baseline (Before only) or one review
-// (Before = fork point, After = feature head). Nothing here picks another commit.
+// The build decides what is shown: a baseline (Before only) or one develop update
+// (Before = develop just before it, After = develop just after it). Nothing here picks another commit.
 const { project, review: context, before, after } = review
 
 function commitLine(snapshot) {
@@ -40,8 +40,6 @@ const entries = after
   ? compareSnapshots(before, after)
   : before.diagrams.map((diagram) => ({ id: diagram.id, title: diagram.title, summary: diagram.summary, after: diagram }))
 
-const beforeLabel = after ? `${context.baseBranch} fork point` : context.baseBranch
-const afterLabel = after ? context.headBranch : null
 
 export default function App() {
   const diagramId = useDiagramHash()
@@ -64,24 +62,20 @@ export default function App() {
         {after ? (
           <div className="review-context" data-testid="review-context" data-state="review">
             <span className="review-state">Review</span>
-            <span className="review-branches">
-              <strong>{context.headBranch}</strong> → <strong>{context.baseBranch}</strong>
-              {context.prNumber && <span className="review-pr"> · PR #{context.prNumber}</span>}
+            <span className="review-snapshot">
+              <span className="review-snapshot-label">Before</span> {context.branch} · {commitLine(before)}
             </span>
             <span className="review-snapshot">
-              <span className="review-snapshot-label">Before</span> {beforeLabel} · {commitLine(before)}
-            </span>
-            <span className="review-snapshot">
-              <span className="review-snapshot-label">After</span> {afterLabel} · {commitLine(after)}
+              <span className="review-snapshot-label">After</span> {context.branch} · {commitLine(after)}
             </span>
           </div>
         ) : (
           <div className="review-context" data-testid="review-context" data-state="baseline">
             <span className="review-state">Baseline</span>
             <span className="review-snapshot">
-              <span className="review-snapshot-label">Before</span> {context.baseBranch} @ {commitLine(before)}
+              <span className="review-snapshot-label">Before</span> {context.branch} @ {commitLine(before)}
             </span>
-            <span className="review-none">No active review</span>
+            <span className="review-none">No develop update to compare</span>
           </div>
         )}
       </header>
@@ -121,7 +115,7 @@ export default function App() {
             <h2>{selected.title}</h2>
             {selected.summary && <p className="summary">{selected.summary}</p>}
             <p className="snapshot-tag">
-              Before · {context.baseBranch} @ {before.shortSha}
+              Before · {context.branch} @ {before.shortSha}
             </p>
             <div className={`diagram-canvas ${selected.after.presentation}`}>
               <MermaidDiagram source={selected.after.source} presentation={selected.after.presentation} />
@@ -130,7 +124,7 @@ export default function App() {
         )}
 
         {selected && after && (
-          <ChangesView entry={selected} from={before} to={after} fromLabel={beforeLabel} toLabel={afterLabel} />
+          <ChangesView entry={selected} from={before} to={after} fromLabel={context.branch} toLabel={context.branch} />
         )}
       </main>
     </div>

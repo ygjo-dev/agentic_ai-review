@@ -61,10 +61,6 @@ export function isAncestor(root, ancestor, descendant) {
   }
 }
 
-export function mergeBase(root, a, b) {
-  return git(root, ['merge-base', a, b]).trim()
-}
-
 export function showFile(root, commit, file) {
   try {
     return git(root, ['show', `${commit.sha}:${file}`])

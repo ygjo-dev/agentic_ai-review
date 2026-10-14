@@ -1,119 +1,64 @@
-// Decides which review the Review Web shows and writes it as REVIEW_* for the build.
+// Decides which pair the Review Web shows and writes it as REVIEW_* for the build.
 //
-//   baseline  no review-ready pull request targets the base branch:
-//             Before = base branch HEAD, no After
-//   review    exactly one open, non-draft pull request targets the base branch:
-//             Before = merge-base(base branch, PR head) = where the feature forked
-//             After  = PR head
+//   review    Before = develop just before an update, After = develop just after it.
+//             agentic_ai's Review Web workflow dispatches this pair on every develop push
+//             (merge, squash, rebase or direct push), straight from the push event.
+//   baseline  no pair given: Before = develop HEAD, no After.
 //
-// With REVIEW_BASE_SHA given (a dispatch from agentic_ai's PR workflow) the given
-// pair is checked against those rules instead of being looked up.
-// v1 policy: one active review at a time; the feature branch does not merge or
-// rebase the base branch during review. Both are reported as errors, not guessed.
+// Both commits must be on develop. Nothing here looks at feature branches or pull requests.
 import fs from 'node:fs'
 import { pathToFileURL } from 'node:url'
-import { commitInfo, git, isAncestor, mergeBase } from '../plugins/reviewGit.js'
+import { commitInfo, git, isAncestor } from '../plugins/reviewGit.js'
 
-const BRANCH = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/
+const SHA = /^[0-9a-f]{7,40}$/
 
 function fail(message) {
   throw new Error(`[review-context] ${message}`)
 }
 
-export function activePullRequests(prs, baseBranch) {
-  return prs.filter((pr) => pr.state === 'open' && !pr.draft && pr.base?.ref === baseBranch)
-}
-
-// The fork point must still be the feature branch's start: no merge commits since.
-export function checkForkPolicy(root, baseSha, headSha) {
-  const merges = git(root, ['rev-list', '--merges', `${baseSha}..${headSha}`]).trim()
-  if (merges) {
-    fail(`the feature branch has merge commits since its fork point ${baseSha.slice(0, 7)} (${merges.split('\n').map((s) => s.slice(0, 7)).join(', ')}); `
-      + 'review v1 needs the branch to stay unmerged with the base branch during review')
+export function resolveContext(root, { beforeSha = '', afterSha = '' } = {}, { branch = 'develop', remote = 'origin' } = {}) {
+  const develop = commitInfo(root, `${remote}/${branch}`)
+  if (!beforeSha && !afterSha) return { beforeSha: develop.sha, afterSha: '', branch }
+  if (!beforeSha || !afterSha) fail('a review needs both the Before and the After commit')
+  for (const [name, sha] of [['Before', beforeSha], ['After', afterSha]]) {
+    if (!SHA.test(sha)) fail(`${name} is not a commit SHA: ${JSON.stringify(sha)}`)
   }
-}
-
-function checkBranch(name, value) {
-  if (!BRANCH.test(value)) fail(`${name} is not a branch name: ${JSON.stringify(value)}`)
-}
-
-export function resolveFromPullRequests(root, prs, { baseBranch = 'develop', remote = 'origin' } = {}) {
-  checkBranch('base branch', baseBranch)
-  const develop = commitInfo(root, `${remote}/${baseBranch}`)
-  const active = activePullRequests(prs, baseBranch)
-  if (active.length > 1) {
-    fail(`single active review policy: ${active.length} review-ready pull requests target ${baseBranch} (${active.map((pr) => `#${pr.number}`).join(', ')})`)
+  const before = commitInfo(root, beforeSha)
+  const after = commitInfo(root, afterSha)
+  if (before.sha === after.sha) fail(`Before and After are the same commit ${before.shortSha}; there is no ${branch} update to review`)
+  for (const [name, commit] of [['Before', before], ['After', after]]) {
+    if (!isAncestor(root, commit.sha, develop.sha)) fail(`${name} ${commit.shortSha} is not on ${branch}`)
   }
-  if (active.length === 0) return { baseSha: develop.sha, headSha: '', baseBranch, headBranch: '', prNumber: '' }
-  const [pr] = active
-  checkBranch('head branch', pr.head.ref)
-  const head = commitInfo(root, pr.head.sha)
-  const base = mergeBase(root, develop.sha, head.sha)
-  checkForkPolicy(root, base, head.sha)
-  return { baseSha: base, headSha: head.sha, baseBranch, headBranch: pr.head.ref, prNumber: String(pr.number) }
+  return { beforeSha: before.sha, afterSha: after.sha, branch }
 }
 
-export function validateExplicit(root, input, { remote = 'origin' } = {}) {
-  const baseBranch = input.baseBranch || 'develop'
-  checkBranch('base branch', baseBranch)
-  const develop = commitInfo(root, `${remote}/${baseBranch}`)
-  const base = commitInfo(root, input.baseSha)
-  if (!input.headSha) {
-    if (input.headBranch || input.prNumber) fail('head branch / pull request given without a head SHA')
-    if (!isAncestor(root, base.sha, develop.sha)) fail(`baseline ${base.shortSha} is not on ${baseBranch}`)
-    return { baseSha: base.sha, headSha: '', baseBranch, headBranch: '', prNumber: '' }
+// A commit dropped from every ref (e.g. by a force push) is not in a fresh clone.
+function fetchIfMissing(root, sha) {
+  if (!SHA.test(sha)) return
+  try {
+    git(root, ['cat-file', '-e', `${sha}^{commit}`])
+  } catch {
+    git(root, ['fetch', '--quiet', 'origin', sha])
   }
-  if (!input.headBranch) fail('a review needs the head branch name')
-  checkBranch('head branch', input.headBranch)
-  if (input.prNumber && !/^[1-9][0-9]*$/.test(input.prNumber)) fail(`not a pull request number: ${JSON.stringify(input.prNumber)}`)
-  const head = commitInfo(root, input.headSha)
-  const fork = mergeBase(root, develop.sha, head.sha)
-  if (fork !== base.sha) fail(`Before ${base.shortSha} is not the fork point of ${head.shortSha} from ${baseBranch} (that is ${fork.slice(0, 7)})`)
-  checkForkPolicy(root, base.sha, head.sha)
-  return { baseSha: base.sha, headSha: head.sha, baseBranch, headBranch: input.headBranch, prNumber: input.prNumber || '' }
-}
-
-async function openPullRequests(repo, baseBranch, token) {
-  const url = `https://api.github.com/repos/${repo}/pulls?state=open&base=${encodeURIComponent(baseBranch)}&per_page=100`
-  const headers = { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' }
-  if (token) headers.Authorization = `Bearer ${token}`
-  const response = await fetch(url, { headers })
-  if (!response.ok) fail(`GitHub API ${response.status} for ${url}`)
-  return response.json()
 }
 
 async function main() {
   const env = process.env
   const root = env.AGENTIC_AI_REVIEW_SOURCE_ROOT
-  const repo = env.AGENTIC_REPO || 'ygjo-dev/agentic_ai'
   if (!root) fail('AGENTIC_AI_REVIEW_SOURCE_ROOT is not set')
-  const input = {
-    baseSha: (env.INPUT_BASE_SHA || '').trim(),
-    headSha: (env.INPUT_HEAD_SHA || '').trim(),
-    baseBranch: (env.INPUT_BASE_BRANCH || '').trim(),
-    headBranch: (env.INPUT_HEAD_BRANCH || '').trim(),
-    prNumber: (env.INPUT_PR_NUMBER || '').trim(),
-  }
-  let context
-  if (input.baseSha) {
-    if (input.prNumber && /^[1-9][0-9]*$/.test(input.prNumber)) git(root, ['fetch', '--quiet', 'origin', `+refs/pull/${input.prNumber}/head:refs/remotes/origin/pr/${input.prNumber}`])
-    context = validateExplicit(root, input)
-  } else {
-    const baseBranch = input.baseBranch || 'develop'
-    const prs = await openPullRequests(repo, baseBranch, env.GITHUB_TOKEN)
-    for (const pr of activePullRequests(prs, baseBranch)) {
-      git(root, ['fetch', '--quiet', 'origin', `+refs/pull/${pr.number}/head:refs/remotes/origin/pr/${pr.number}`])
-    }
-    context = resolveFromPullRequests(root, prs, { baseBranch })
-  }
+  const input = { beforeSha: (env.INPUT_BEFORE_SHA || '').trim(), afterSha: (env.INPUT_AFTER_SHA || '').trim() }
+  const branch = (env.INPUT_BRANCH || '').trim() || 'develop'
+  fetchIfMissing(root, input.beforeSha)
+  fetchIfMissing(root, input.afterSha)
+  const context = resolveContext(root, input, { branch })
   const lines = [
-    `REVIEW_BASE_SHA=${context.baseSha}`,
-    `REVIEW_HEAD_SHA=${context.headSha}`,
-    `REVIEW_BASE_BRANCH=${context.baseBranch}`,
-    `REVIEW_HEAD_BRANCH=${context.headBranch}`,
-    `REVIEW_PR_NUMBER=${context.prNumber}`,
+    `REVIEW_BEFORE_SHA=${context.beforeSha}`,
+    `REVIEW_AFTER_SHA=${context.afterSha}`,
+    `REVIEW_BRANCH=${context.branch}`,
   ]
-  console.log(context.headSha ? `review: ${context.headBranch} (#${context.prNumber}) ${context.baseSha.slice(0, 7)} -> ${context.headSha.slice(0, 7)}` : `baseline: ${context.baseBranch} @ ${context.baseSha.slice(0, 7)}`)
+  console.log(context.afterSha
+    ? `review: ${context.branch} ${context.beforeSha.slice(0, 7)} -> ${context.afterSha.slice(0, 7)}`
+    : `baseline: ${context.branch} @ ${context.beforeSha.slice(0, 7)}`)
   if (env.GITHUB_ENV) fs.appendFileSync(env.GITHUB_ENV, lines.join('\n') + '\n')
   else console.log(lines.join('\n'))
 }

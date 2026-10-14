@@ -87,7 +87,6 @@ body {
   border: 1px solid var(--accent);
 }
 
-.review-branches strong,
 .review-snapshot-label {
   color: var(--text);
   font-weight: 600;
