@@ -8,11 +8,12 @@
 //   review    Before = develop just before an update, After = develop just after it
 // The dev server without a context shows HEAD, plus uncommitted dev/review edits
 // as After when there are any. Local preview (dev server only, `npm run review:dev`)
-// compares a ref (origin/develop) with the agentic_ai working tree as it is on disk.
+// compares the agentic_ai working tree as it is on disk with a ref (origin/develop) or HEAD.
 import fs from 'node:fs'
 import path from 'node:path'
 import { parse } from 'yaml'
 import { FlowchartError, parseFlowchart } from '../src/review/flowchart.js'
+import { COMPARE_MODES } from '../src/review/localCompare.js'
 import { REVIEW_DIR, checkRepository, commitInfo, git, showFile } from './reviewGit.js'
 
 const VIRTUAL_ID = 'virtual:review-source'
@@ -157,22 +158,28 @@ const plain = (review) => ({
   diagrams: review.diagrams.map(({ id, title, summary, file, watch, presentation, source }) => ({ id, title, summary, file, watch, presentation, source })),
 })
 
-// Local preview: Before = beforeRef (e.g. origin/develop), After = the working tree
-// always, labelled with the checked-out branch and whether dev/review has uncommitted edits.
-function localContext(sourceRoot, { beforeRef }) {
+// Local preview: After = the working tree always, labelled with the checked-out branch and
+// whether dev/review has uncommitted edits. Before = beforeRef (e.g. origin/develop) for
+// compare "develop", HEAD for "previous-commit" (HEAD → working tree, not HEAD^ → HEAD).
+function localContext(sourceRoot, { beforeRef, compare = 'develop' }) {
+  if (!COMPARE_MODES.includes(compare)) fail(`unknown local compare mode: ${JSON.stringify(compare)}`)
+  const head = git(sourceRoot, ['rev-parse', '--abbrev-ref', 'HEAD']).trim()
+  const branch = head === 'HEAD' ? 'detached HEAD' : head
+  const previous = compare === 'previous-commit'
   return {
-    before: commitInfo(sourceRoot, beforeRef),
+    before: commitInfo(sourceRoot, previous ? 'HEAD' : beforeRef),
     after: null,
-    branch: beforeRef.replace(/^origin\//, ''),
+    branch: previous ? branch : beforeRef.replace(/^origin\//, ''),
     local: {
-      branch: git(sourceRoot, ['rev-parse', '--abbrev-ref', 'HEAD']).trim(),
+      branch,
       dirty: git(sourceRoot, ['status', '--porcelain', '--', REVIEW_DIR]).trim() !== '',
+      compare,
     },
   }
 }
 
 // { project, review: {state, branch, local?}, before, after } — never more than these two snapshots.
-// `local` ({beforeRef}) is for the dev server only; the build never passes it.
+// `local` ({beforeRef, compare}) is for the dev server only; the build never passes it.
 export function readReview(sourceRoot, { includeWorkingTree = false, local = null, env = process.env } = {}) {
   checkRepository(sourceRoot)
   const warnings = []
@@ -203,12 +210,36 @@ export function readReview(sourceRoot, { includeWorkingTree = false, local = nul
   return { data: { project: (after ?? before).project, review, before, after }, files, warnings }
 }
 
+// Local preview serves every comparison at once ({ compare: { develop, 'previous-commit' } }),
+// so the page switches between them without a reload. A comparison whose Before cannot be
+// read (no origin/develop yet) carries { error } and the other still works; when none can be
+// read (e.g. a broken working tree) it fails as a single comparison would.
+export function readLocalPreview(sourceRoot, { beforeRef }) {
+  const compare = {}
+  const files = new Set()
+  const warnings = new Set()
+  const errors = []
+  for (const mode of COMPARE_MODES) {
+    try {
+      const result = readReview(sourceRoot, { local: { beforeRef, compare: mode } })
+      compare[mode] = result.data
+      result.files.forEach((file) => files.add(file))
+      result.warnings.forEach((warning) => warnings.add(warning))
+    } catch (error) {
+      compare[mode] = { error: error.message }
+      errors.push(error)
+    }
+  }
+  if (errors.length === COMPARE_MODES.length) throw errors[0]
+  return { data: { compare }, files: [...files], warnings: [...warnings] }
+}
+
 export default function reviewSource({ sourceRoot, local = null }) {
   const reviewDir = path.join(sourceRoot, REVIEW_DIR)
   const headFile = path.join(sourceRoot, '.git', 'HEAD')
   let serving = false
   // Local preview reads the working tree, so it never reaches a build.
-  const options = () => ({ includeWorkingTree: serving, local: serving ? local : null })
+  const read = () => (serving && local ? readLocalPreview(sourceRoot, local) : readReview(sourceRoot, { includeWorkingTree: serving }))
 
   return {
     name: 'review-source',
@@ -219,7 +250,7 @@ export default function reviewSource({ sourceRoot, local = null }) {
 
     // Fail dev/build startup on a broken Review Source instead of at first request.
     buildStart() {
-      readReview(sourceRoot, options())
+      read()
     },
 
     resolveId(id) {
@@ -228,7 +259,7 @@ export default function reviewSource({ sourceRoot, local = null }) {
 
     load(id) {
       if (id !== RESOLVED_ID) return
-      const { data, files, warnings } = readReview(sourceRoot, options())
+      const { data, files, warnings } = read()
       for (const warning of warnings) this.warn(`Changes unavailable for ${warning}`)
       for (const file of files) this.addWatchFile(file)
       return `export default ${JSON.stringify(data)}`

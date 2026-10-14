@@ -1,11 +1,13 @@
 // Local preview: `npm run review:dev`. Vite dev server on 0.0.0.0 that compares
-//   Before = REVIEW_BEFORE_REF (default origin/develop) of the agentic_ai checkout
-//   After  = that checkout's working tree as it is on disk (committed + uncommitted)
+//   After  = the agentic_ai checkout's working tree as it is on disk (committed + uncommitted)
+//   Before = 비교 기준, picked on the page (src/review/localCompare.js):
+//            develop 기준 (default)  REVIEW_BEFORE_REF, default origin/develop
+//            직전 커밋 기준           HEAD (only what changed since the last commit)
 // Viewer edits hot-reload; dev/review edits and branch switches reload the page.
 // Development only: nothing here touches GitHub, secrets or the public Pages build.
 //
 //   AGENTIC_AI_REPO     agentic_ai checkout (default ../agentic_ai)
-//   REVIEW_BEFORE_REF   Before ref (default origin/develop; `git fetch` to refresh it)
+//   REVIEW_BEFORE_REF   develop 기준 Before ref (default origin/develop; `git fetch` to refresh it)
 //   REVIEW_DEV_PORT     port (default 4797)
 import os from 'node:os'
 import path from 'node:path'
@@ -22,7 +24,14 @@ process.env.AGENTIC_AI_REVIEW_SOURCE_ROOT = sourceRoot
 process.env.REVIEW_LOCAL = '1'
 process.env.REVIEW_BEFORE_REF = beforeRef
 
-const before = commitInfo(sourceRoot, beforeRef)
+// A Before that cannot be read is reported here and on the page; the other 비교 기준 still works.
+const describe = (ref) => {
+  try {
+    return `${ref} · ${commitInfo(sourceRoot, ref).shortSha}`
+  } catch (error) {
+    return `${ref} unavailable: ${error.message}`
+  }
+}
 const branch = git(sourceRoot, ['rev-parse', '--abbrev-ref', 'HEAD']).trim()
 
 const server = await createServer({ root: viewerRoot, server: { host: '0.0.0.0', port, strictPort: true } })
@@ -35,7 +44,8 @@ const lan = Object.entries(os.networkInterfaces())
   .filter((address) => address.family === 'IPv4' && !address.internal)
   .map((address) => address.address)
 console.log(`\nReview local preview  (${sourceRoot})`)
-console.log(`  Before  ${beforeRef} · ${before.shortSha}`)
+console.log(`  Before  develop 기준    ${describe(beforeRef)}  (default)`)
+console.log(`          직전 커밋 기준  ${describe('HEAD')}`)
 console.log(`  After   working tree · ${branch}`)
 console.log(`  Local   http://127.0.0.1:${port}/`)
 for (const address of lan) console.log(`  LAN     http://${address}:${port}/`)
