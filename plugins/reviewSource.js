@@ -7,7 +7,8 @@
 //   baseline  Before = the develop HEAD, no After
 //   review    Before = develop just before an update, After = develop just after it
 // The dev server without a context shows HEAD, plus uncommitted dev/review edits
-// as After when there are any.
+// as After when there are any. Local preview (dev server only, `npm run review:dev`)
+// compares a ref (origin/develop) with the agentic_ai working tree as it is on disk.
 import fs from 'node:fs'
 import path from 'node:path'
 import { parse } from 'yaml'
@@ -156,24 +157,41 @@ const plain = (review) => ({
   diagrams: review.diagrams.map(({ id, title, summary, file, watch, presentation, source }) => ({ id, title, summary, file, watch, presentation, source })),
 })
 
-// { project, review: {state, branch}, before, after } — never more than these two snapshots.
-export function readReview(sourceRoot, { includeWorkingTree = false, env = process.env } = {}) {
+// Local preview: Before = beforeRef (e.g. origin/develop), After = the working tree
+// always, labelled with the checked-out branch and whether dev/review has uncommitted edits.
+function localContext(sourceRoot, { beforeRef }) {
+  return {
+    before: commitInfo(sourceRoot, beforeRef),
+    after: null,
+    branch: beforeRef.replace(/^origin\//, ''),
+    local: {
+      branch: git(sourceRoot, ['rev-parse', '--abbrev-ref', 'HEAD']).trim(),
+      dirty: git(sourceRoot, ['status', '--porcelain', '--', REVIEW_DIR]).trim() !== '',
+    },
+  }
+}
+
+// { project, review: {state, branch, local?}, before, after } — never more than these two snapshots.
+// `local` ({beforeRef}) is for the dev server only; the build never passes it.
+export function readReview(sourceRoot, { includeWorkingTree = false, local = null, env = process.env } = {}) {
   checkRepository(sourceRoot)
   const warnings = []
-  const context = readReviewContext(sourceRoot, env)
+  const context = local ? localContext(sourceRoot, local) : readReviewContext(sourceRoot, env)
   const before = snapshotAt(sourceRoot, context.before, warnings)
   let after = context.after ? snapshotAt(sourceRoot, context.after, warnings) : null
 
   const files = []
-  if (includeWorkingTree && !after) {
+  if ((includeWorkingTree || local) && !after) {
     const current = readReviewSource(sourceRoot)
     files.push(...current.files)
-    if (JSON.stringify(plain(current.data)) !== JSON.stringify(plain(before))) {
+    if (local || JSON.stringify(plain(current.data)) !== JSON.stringify(plain(before))) {
       after = {
         sha: 'working-tree',
         shortSha: 'working tree',
         timestamp: null,
-        subject: `Uncommitted ${REVIEW_DIR} changes`,
+        subject: context.local
+          ? `${context.local.branch}${context.local.dirty ? ' · modified' : ''}`
+          : `Uncommitted ${REVIEW_DIR} changes`,
         workingTree: true,
         ...withGraphs(current.data, 'working tree', warnings),
       }
@@ -181,12 +199,16 @@ export function readReview(sourceRoot, { includeWorkingTree = false, env = proce
   }
 
   const review = { state: after ? 'review' : 'baseline', branch: context.branch }
+  if (context.local) review.local = context.local
   return { data: { project: (after ?? before).project, review, before, after }, files, warnings }
 }
 
-export default function reviewSource({ sourceRoot }) {
+export default function reviewSource({ sourceRoot, local = null }) {
   const reviewDir = path.join(sourceRoot, REVIEW_DIR)
+  const headFile = path.join(sourceRoot, '.git', 'HEAD')
   let serving = false
+  // Local preview reads the working tree, so it never reaches a build.
+  const options = () => ({ includeWorkingTree: serving, local: serving ? local : null })
 
   return {
     name: 'review-source',
@@ -197,7 +219,7 @@ export default function reviewSource({ sourceRoot }) {
 
     // Fail dev/build startup on a broken Review Source instead of at first request.
     buildStart() {
-      readReview(sourceRoot, { includeWorkingTree: serving })
+      readReview(sourceRoot, options())
     },
 
     resolveId(id) {
@@ -206,7 +228,7 @@ export default function reviewSource({ sourceRoot }) {
 
     load(id) {
       if (id !== RESOLVED_ID) return
-      const { data, files, warnings } = readReview(sourceRoot, { includeWorkingTree: serving })
+      const { data, files, warnings } = readReview(sourceRoot, options())
       for (const warning of warnings) this.warn(`Changes unavailable for ${warning}`)
       for (const file of files) this.addWatchFile(file)
       return `export default ${JSON.stringify(data)}`
@@ -223,15 +245,28 @@ export default function reviewSource({ sourceRoot }) {
         next()
       })
 
-      server.watcher.add(reviewDir)
-      const onChange = (file) => {
-        if (!path.resolve(file).startsWith(reviewDir + path.sep)) return
+      const reload = () => {
         invalidate()
         server.ws.send({ type: 'full-reload' })
+      }
+      server.watcher.add(reviewDir)
+      const onChange = (file) => {
+        if (path.resolve(file).startsWith(reviewDir + path.sep)) reload()
       }
       server.watcher.on('change', onChange)
       server.watcher.on('add', onChange)
       server.watcher.on('unlink', onChange)
+
+      // Local preview also follows a branch switch. Vite ignores .git, so watch that one
+      // directory's entries (not recursive) and react to HEAD only; git renames it into place.
+      if (local) {
+        const gitDir = path.dirname(headFile)
+        const head = fs.watch(gitDir, (event, name) => {
+          if (name === 'HEAD') reload()
+        })
+        head.unref()
+        server.httpServer?.once('close', () => head.close())
+      }
     },
   }
 }

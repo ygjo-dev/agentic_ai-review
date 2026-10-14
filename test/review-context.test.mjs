@@ -104,7 +104,7 @@ test('the viewer labels both snapshots with the branch and has no PR, fork point
     assert.doesNotMatch(text, /fork point|PR #|prNumber|headBranch|baseBranch|<select|Compare from/, file)
   }
   const app = fs.readFileSync(path.join(viewer, 'src/App.jsx'), 'utf8')
-  assert.match(app, /fromLabel=\{context\.branch\}\s+toLabel=\{context\.branch\}/)
+  assert.match(app, /fromLabel=\{context\.branch\}\s+toLabel=\{local \? 'working tree' : context\.branch\}/)
 })
 
 // develop rewritten by a force push (only inside this throwaway fixture): the old develop

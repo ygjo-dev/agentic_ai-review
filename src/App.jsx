@@ -7,6 +7,9 @@ import { compareSnapshots } from './review/changes.js'
 // The build decides what is shown: a baseline (Before only) or one develop update
 // (Before = develop just before it, After = develop just after it). Nothing here picks another commit.
 const { project, review: context, before, after } = review
+// Local preview (`npm run review:dev`): Before = a develop ref, After = the agentic_ai working
+// tree. Only the dev server sets it; import.meta.env.DEV drops this path from the build.
+const local = import.meta.env.DEV && context.local ? context.local : null
 
 function commitLine(snapshot) {
   if (snapshot.workingTree) return `working tree · ${snapshot.subject}`
@@ -76,15 +79,25 @@ export default function App() {
 
         {after ? (
           <div className="review-context" data-testid="review-context" data-state="review">
-            <div className="review-heading">
-              <span className="review-state">Review</span>
-              <span className="review-caption">Latest {context.branch} update</span>
-            </div>
+            {import.meta.env.DEV && local ? (
+              <div className="review-heading">
+                <span className="review-state local" data-testid="local-preview">
+                  LOCAL PREVIEW
+                </span>
+                <span className="review-caption">{context.branch} vs working tree</span>
+              </div>
+            ) : (
+              <div className="review-heading">
+                <span className="review-state">Review</span>
+                <span className="review-caption">Latest {context.branch} update</span>
+              </div>
+            )}
             <span className="review-snapshot before">
               <span className="review-snapshot-label">Before</span> {context.branch} · {commitLine(before)}
             </span>
             <span className="review-snapshot after">
-              <span className="review-snapshot-label">After</span> {context.branch} · {commitLine(after)}
+              <span className="review-snapshot-label">After</span> {local ? '' : `${context.branch} · `}
+              {commitLine(after)}
             </span>
           </div>
         ) : (
@@ -152,7 +165,7 @@ export default function App() {
             from={before}
             to={after}
             fromLabel={context.branch}
-            toLabel={context.branch}
+            toLabel={local ? 'working tree' : context.branch}
             toolbar={<ScaleToggle actual={actual} onChange={setActual} />}
           />
         )}

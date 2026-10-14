@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "review:dev": "node scripts/local-review.mjs",
     "build": "vite build",
     "lint": "oxlint",
     "test": "node --test \"test/*.test.mjs\"",

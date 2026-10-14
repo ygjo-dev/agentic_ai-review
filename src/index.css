@@ -98,7 +98,14 @@ body {
   overflow-wrap: anywhere;
 }
 
-.review-snapshot .review-snapshot-label {
+.review-snapshot .review-state.local {
+  color: var(--notice);
+  background: var(--notice-bg);
+  border-color: var(--notice);
+  letter-spacing: 0.04em;
+}
+
+.review-snapshot-label {
   display: inline-block;
   width: 60px;
   margin-right: 4px;

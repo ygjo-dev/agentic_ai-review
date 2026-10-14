@@ -37,6 +37,9 @@ Actions secret of this repository, the deploy job posts one message once a pair 
 ```sh
 npm install
 npm run dev     # edits under ../agentic_ai/dev/review reload the page
+npm run review:dev   # local preview on 0.0.0.0:4797: origin/develop vs the agentic_ai working
+                     # tree (uncommitted dev/review included); prints Local / LAN URLs.
+                     # AGENTIC_AI_REPO · REVIEW_BEFORE_REF · REVIEW_DEV_PORT override; dev only
 npm test        # Before/After pair rules on a throwaway git fixture
 npm run build   # fails with a readable error if the Review Source is broken
 ```
