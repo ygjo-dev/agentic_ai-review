@@ -288,15 +288,30 @@ export default function reviewSource({ sourceRoot, local = null }) {
       server.watcher.on('add', onChange)
       server.watcher.on('unlink', onChange)
 
-      // Local preview also follows a branch switch. Vite ignores .git, so watch that one
-      // directory's entries (not recursive) and react to HEAD only; git renames it into place.
+      // Local preview also follows HEAD: a branch switch rewrites .git/HEAD, a commit (amend,
+      // reset, rebase) only moves the branch ref but appends to the HEAD reflog .git/logs/HEAD,
+      // and 직전 커밋 기준 compares with that commit. Vite ignores .git, so watch those two
+      // directories' entries (not recursive) for HEAD; one git command touching both reloads once.
       if (local) {
         const gitDir = path.dirname(headFile)
-        const head = fs.watch(gitDir, (event, name) => {
-          if (name === 'HEAD') reload()
+        let timer
+        const reloadSoon = () => {
+          clearTimeout(timer)
+          timer = setTimeout(reload, 100)
+        }
+        const watchers = [gitDir, path.join(gitDir, 'logs')]
+          .filter((dir) => fs.existsSync(dir))
+          .map((dir) => {
+            const watcher = fs.watch(dir, (event, name) => {
+              if (name === 'HEAD') reloadSoon()
+            })
+            watcher.unref()
+            return watcher
+          })
+        server.httpServer?.once('close', () => {
+          clearTimeout(timer)
+          for (const watcher of watchers) watcher.close()
         })
-        head.unref()
-        server.httpServer?.once('close', () => head.close())
       }
     },
   }

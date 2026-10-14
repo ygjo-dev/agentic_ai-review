@@ -211,7 +211,7 @@ test('dev server: local preview serves both comparisons, a plain dev server only
   assert.equal(plainData.review.local, undefined)
 })
 
-test('dev server: a dev/review edit and a branch switch each reload the page', async () => {
+test('dev server: a dev/review edit, a branch switch and a commit each reload the page', async () => {
   Object.assign(process.env, { AGENTIC_AI_REVIEW_SOURCE_ROOT: work, REVIEW_LOCAL: '1', REVIEW_BEFORE_REF: 'origin/develop' })
   const server = await createServer({ root: viewer, logLevel: 'silent', server: { port: 0 } })
   const reloads = []
@@ -234,6 +234,12 @@ test('dev server: a dev/review edit and a branch switch each reload the page', a
     const before = reloads.length
     run('checkout', '-q', '-b', 'feature/y')   // same content: only .git/HEAD changes
     assert.ok(await waitForReload(before + 1), 'no reload after a branch switch')
+    // A commit leaves .git/HEAD and the working tree alone (only the branch ref and the HEAD
+    // reflog move), yet 직전 커밋 기준's Before is now that commit.
+    await new Promise((r) => setTimeout(r, 300))
+    const beforeCommit = reloads.length
+    run('commit', '-q', '--allow-empty', '-m', 'y')
+    assert.ok(await waitForReload(beforeCommit + 1), 'no reload after a commit')
     run('checkout', '-q', 'feature/x'); run('stash', 'pop', '-q')
   } finally {
     await server.close()
