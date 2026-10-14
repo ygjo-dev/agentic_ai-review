@@ -18,13 +18,17 @@ develop, read by SHA with `git show` (the agentic_ai working tree never moves):
 
 Feature branch pushes and pull request events do not change it. The build takes the pair from
 `REVIEW_BEFORE_SHA`, `REVIEW_AFTER_SHA`, `REVIEW_BRANCH`; in CI `scripts/resolve-review-context.mjs`
-checks that the dispatched pair is two different commits on develop (no pair = baseline). The URL
-only carries the diagram (`#runtime_pipeline`). Without a context the dev server shows HEAD, plus
+checks that After is on develop and Before is either on develop or, after a force push dropped
+it, on no branch at all (fetched by SHA); no pair = baseline. Runtime / Data are tabs; each diagram
+fits its pane (scaled down, never up) and "Actual size" shows it unscaled. The URL only carries the
+diagram (`#runtime_pipeline`). Without a context the dev server shows HEAD, plus
 uncommitted `dev/review` edits as After. A diagram with `presentation: schema` renders as field lists.
 
 Production is a public GitHub Pages site (https://agentic-ai-review.krri.re.kr/; the custom
 domain is set in the repository's Settings > Pages): `.github/workflows/deploy-pages.yml` checks
-out `ygjo-dev/agentic_ai` with full history in CI and publishes only the static `dist/`. agentic_ai's
+out the private `ygjo-dev/agentic_ai` with full history in CI using the `AGENTIC_AI_READ_TOKEN`
+secret (fine-grained, that repository only, Contents read-only) and publishes only the static
+`dist/` built from its `dev/review`. agentic_ai's
 `Review Web` workflow dispatches it on every push to develop with the push event's before/after
 commits. Only a dispatch deploys: a viewer push only builds, and is published by the next dispatch
 (or by running the workflow by hand with the current pair). When `SLACK_WEBHOOK_URL` is set as an

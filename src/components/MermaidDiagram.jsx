@@ -9,9 +9,10 @@ const DIRECTIVES = {
   schema: '%%{init: {"flowchart": {"wrappingWidth": 640}}}%%\n',
 }
 
-// Schema diagrams read like code: field names in <code>, IN / OUT marked. Only
-// standard tags (sized the same where Mermaid measures them); colours are CSS.
-const FIELD = /(^|<br\/>|")((?:<(?:ins|del)>)?)((?:&nbsp;)*)([A-Za-z_][\w.]*\??)(: )/g
+// Schema diagrams read like code: field names in <code>, IN / OUT marked. A field
+// starts a line or follows "{" / ", " inside a one-line object. Only standard tags
+// (sized the same where Mermaid measures them); colours are CSS.
+const FIELD = /(^|<br\/>|"|\{|, )((?:<(?:ins|del)>)?)((?:&nbsp;)*)([A-Za-z_][\w.]*\??)(: )/g
 
 function decorateSchema(source) {
   return source.replace(FIELD, '$1$2$3<code>$4</code>$5').replace(/<b>(IN|OUT)<\/b>/g, '<b><u>$1</u></b>')
@@ -55,5 +56,13 @@ export default function MermaidDiagram({ source, presentation = 'default' }) {
       </div>
     )
   }
-  return <div className="diagram-svg" dangerouslySetInnerHTML={{ __html: result.svg }} />
+  // The natural width (viewBox) lets "Actual size" show the diagram unscaled.
+  const width = Number(/viewBox="[-\d.]+ [-\d.]+ ([\d.]+)/.exec(result.svg)?.[1])
+  return (
+    <div
+      className="diagram-svg"
+      style={width ? { '--natural-width': `${Math.ceil(width)}px` } : undefined}
+      dangerouslySetInnerHTML={{ __html: result.svg }}
+    />
+  )
 }

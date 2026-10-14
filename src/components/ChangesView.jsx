@@ -142,13 +142,18 @@ function Pane({ side, snapshot, label, source, presentation, sync, index }) {
   )
 }
 
-export default function ChangesView({ entry, from, to, fromLabel, toLabel }) {
+export default function ChangesView({ entry, from, to, fromLabel, toLabel, toolbar }) {
   const sync = useSyncedScroll()
   const presentation = (entry.after ?? entry.before)?.presentation ?? 'default'
   return (
     <article>
-      <h2>{entry.title}</h2>
-      {entry.summary && <p className="summary">{entry.summary}</p>}
+      <div className="diagram-heading">
+        <div>
+          <h2>{entry.title}</h2>
+          {entry.summary && <p className="summary">{entry.summary}</p>}
+        </div>
+        {toolbar}
+      </div>
 
       {entry.error && (
         <div className="diagram-error" role="alert">
@@ -171,11 +176,9 @@ export default function ChangesView({ entry, from, to, fromLabel, toLabel }) {
           {entry.metadataChanges.length > 0 && (
             <p className="metadata-note">Review metadata changed: {entry.metadataChanges.join(', ')}</p>
           )}
-          <div className="compare-scroll">
-            <div className="compare-grid">
-              <Pane side="before" index={0} snapshot={from} label={fromLabel} source={entry.panes.before} presentation={presentation} sync={sync} />
-              <Pane side="after" index={1} snapshot={to} label={toLabel} source={entry.panes.after} presentation={presentation} sync={sync} />
-            </div>
+          <div className="compare-grid">
+            <Pane side="before" index={0} snapshot={from} label={fromLabel} source={entry.panes.before} presentation={presentation} sync={sync} />
+            <Pane side="after" index={1} snapshot={to} label={toLabel} source={entry.panes.after} presentation={presentation} sync={sync} />
           </div>
           {entry.diff.count > 0 && <ChangeSummary entry={entry} />}
         </>

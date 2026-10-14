@@ -17,7 +17,7 @@ function badgeFor(entry) {
   if (entry.error) return { text: 'Error', kind: 'error' }
   if (!entry.before) return { text: 'New', kind: 'count' }
   if (!entry.after) return { text: 'Removed', kind: 'count' }
-  if (entry.diff.count > 0) return { text: String(entry.diff.count), kind: 'count' }
+  if (entry.diff.count > 0) return { text: `${entry.diff.count} changes`, kind: 'count' }
   return { text: 'No change', kind: 'none' }
 }
 
@@ -40,10 +40,25 @@ const entries = after
   ? compareSnapshots(before, after)
   : before.diagrams.map((diagram) => ({ id: diagram.id, title: diagram.title, summary: diagram.summary, after: diagram }))
 
+// Diagrams fit their pane by default (scaled down, never up); "Actual size" shows them
+// unscaled and lets the pane scroll.
+function ScaleToggle({ actual, onChange }) {
+  return (
+    <div className="scale-toggle" role="group" aria-label="Diagram size">
+      <button type="button" aria-pressed={!actual} onClick={() => onChange(false)}>
+        Fit width
+      </button>
+      <button type="button" aria-pressed={actual} onClick={() => onChange(true)}>
+        Actual size
+      </button>
+    </div>
+  )
+}
 
 export default function App() {
   const diagramId = useDiagramHash()
   const selected = useMemo(() => entries.find((entry) => entry.id === diagramId) ?? entries[0], [diagramId])
+  const [actual, setActual] = useState(false)
 
   useEffect(() => {
     if (selected && decodeURIComponent(window.location.hash.slice(1)) !== selected.id) {
@@ -52,7 +67,7 @@ export default function App() {
   }, [selected])
 
   return (
-    <div className="layout">
+    <div className={`layout${actual ? ' scale-actual' : ''}`}>
       <header className="page-header">
         <div className="title-row">
           <h1>{project.title}</h1>
@@ -61,45 +76,48 @@ export default function App() {
 
         {after ? (
           <div className="review-context" data-testid="review-context" data-state="review">
-            <span className="review-state">Review</span>
-            <span className="review-snapshot">
+            <div className="review-heading">
+              <span className="review-state">Review</span>
+              <span className="review-caption">Latest {context.branch} update</span>
+            </div>
+            <span className="review-snapshot before">
               <span className="review-snapshot-label">Before</span> {context.branch} · {commitLine(before)}
             </span>
-            <span className="review-snapshot">
+            <span className="review-snapshot after">
               <span className="review-snapshot-label">After</span> {context.branch} · {commitLine(after)}
             </span>
           </div>
         ) : (
           <div className="review-context" data-testid="review-context" data-state="baseline">
-            <span className="review-state">Baseline</span>
-            <span className="review-snapshot">
+            <div className="review-heading">
+              <span className="review-state">Baseline</span>
+              <span className="review-none">No develop update to compare</span>
+            </div>
+            <span className="review-snapshot before">
               <span className="review-snapshot-label">Before</span> {context.branch} @ {commitLine(before)}
             </span>
-            <span className="review-none">No develop update to compare</span>
           </div>
         )}
       </header>
 
-      <nav className="diagram-nav" aria-label="Diagrams">
+      <nav className="diagram-tabs" aria-label="Diagrams">
         <ul>
           {entries.map((entry) => {
             const badge = after ? badgeFor(entry) : null
+            const current = entry.id === selected?.id
             return (
               <li key={entry.id}>
                 <a
                   href={`#${encodeURIComponent(entry.id)}`}
-                  className={entry.id === selected?.id ? 'selected' : undefined}
-                  aria-current={entry.id === selected?.id ? 'page' : undefined}
+                  className={current ? 'selected' : undefined}
+                  aria-current={current ? 'page' : undefined}
                 >
-                  <span className="nav-heading">
-                    <span className="nav-title">{entry.title}</span>
-                    {badge && (
-                      <span className={`nav-badge ${badge.kind}`} data-testid="change-badge">
-                        {badge.text}
-                      </span>
-                    )}
-                  </span>
-                  {entry.summary && <span className="nav-summary">{entry.summary}</span>}
+                  <span className="nav-title">{entry.title}</span>
+                  {badge && (
+                    <span className={`nav-badge ${badge.kind}`} data-testid="change-badge">
+                      {badge.text}
+                    </span>
+                  )}
                 </a>
               </li>
             )
@@ -112,8 +130,13 @@ export default function App() {
 
         {selected && !after && (
           <article>
-            <h2>{selected.title}</h2>
-            {selected.summary && <p className="summary">{selected.summary}</p>}
+            <div className="diagram-heading">
+              <div>
+                <h2>{selected.title}</h2>
+                {selected.summary && <p className="summary">{selected.summary}</p>}
+              </div>
+              <ScaleToggle actual={actual} onChange={setActual} />
+            </div>
             <p className="snapshot-tag">
               Before · {context.branch} @ {before.shortSha}
             </p>
@@ -124,7 +147,14 @@ export default function App() {
         )}
 
         {selected && after && (
-          <ChangesView entry={selected} from={before} to={after} fromLabel={context.branch} toLabel={context.branch} />
+          <ChangesView
+            entry={selected}
+            from={before}
+            to={after}
+            fromLabel={context.branch}
+            toLabel={context.branch}
+            toolbar={<ScaleToggle actual={actual} onChange={setActual} />}
+          />
         )}
       </main>
     </div>

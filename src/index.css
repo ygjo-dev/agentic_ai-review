@@ -34,11 +34,12 @@ body {
 
 .layout {
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
-  grid-template-rows: auto 1fr;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto 1fr;
   grid-template-areas:
-    'header header'
-    'nav content';
+    'header'
+    'tabs'
+    'content';
   min-height: 100vh;
 }
 
@@ -69,12 +70,39 @@ body {
 }
 
 .review-context {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.review-heading {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 6px 18px;
-  font-size: 0.9rem;
-  color: var(--muted);
+  gap: 4px 10px;
+  margin-bottom: 2px;
+}
+
+.review-caption {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* Before / After as two aligned rows, the label a fixed column. */
+.review-snapshot {
+  display: block;
+  padding-left: 64px;
+  text-indent: -64px;
+  overflow-wrap: anywhere;
+}
+
+.review-snapshot .review-snapshot-label {
+  display: inline-block;
+  width: 60px;
+  margin-right: 4px;
+  text-indent: 0;
 }
 
 .review-state {
@@ -112,49 +140,42 @@ body {
   font-size: 0.88rem;
 }
 
-.diagram-nav {
-  grid-area: nav;
-  padding: 16px 12px;
+.diagram-tabs {
+  grid-area: tabs;
+  padding: 0 24px;
   background: var(--panel);
-  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
 }
 
-.diagram-nav ul {
+.diagram-tabs ul {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  flex-wrap: wrap;
+  gap: 4px 8px;
 }
 
-.diagram-nav a {
-  display: block;
-  padding: 10px 12px;
-  border-radius: 6px;
-  border-left: 3px solid transparent;
-  color: inherit;
+.diagram-tabs a {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 12px 14px 10px;
+  border-bottom: 3px solid transparent;
+  color: var(--muted);
   text-decoration: none;
 }
 
-.diagram-nav a:hover {
-  background: var(--bg);
+.diagram-tabs a:hover {
+  color: var(--text);
 }
 
-.diagram-nav a.selected {
-  background: var(--accent-bg);
-  border-left-color: var(--accent);
-}
-
-.nav-heading {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
+.diagram-tabs a.selected {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
 }
 
 .nav-title {
-  display: block;
   font-weight: 600;
 }
 
@@ -183,18 +204,6 @@ body {
   border: 1px solid var(--error);
 }
 
-.diagram-nav a.selected .nav-title {
-  color: var(--accent);
-}
-
-.nav-summary {
-  display: block;
-  margin-top: 2px;
-  color: var(--muted);
-  font-size: 0.82rem;
-  line-height: 1.4;
-}
-
 .content {
   grid-area: content;
   min-width: 0;
@@ -202,14 +211,52 @@ body {
 }
 
 .content h2 {
-  margin: 0 0 6px;
-  font-size: 1.4rem;
+  margin: 0 0 4px;
+  font-size: 1.3rem;
 }
 
 .summary {
-  margin: 0 0 20px;
+  margin: 0;
   max-width: 80ch;
   color: var(--muted);
+}
+
+.diagram-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 24px;
+  margin-bottom: 16px;
+}
+
+.scale-toggle {
+  display: inline-flex;
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--panel);
+}
+
+.scale-toggle button {
+  padding: 4px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.scale-toggle button + button {
+  border-left: 1px solid var(--border);
+}
+
+.scale-toggle button[aria-pressed='true'] {
+  color: var(--accent);
+  background: var(--accent-bg);
+  font-weight: 600;
 }
 
 .diagram-canvas {
@@ -220,11 +267,17 @@ body {
   border-radius: 8px;
 }
 
+/* Mermaid gives the SVG width 100% and max-width = its natural width: it fits the pane
+   and is never enlarged. "Actual size" shows it at its natural width and the pane scrolls. */
 .diagram-svg svg {
   display: block;
-  max-width: none;
   height: auto;
   margin: 0 auto;
+}
+
+.scale-actual .diagram-svg svg {
+  width: var(--natural-width) !important;
+  max-width: none !important;
 }
 
 /* Schema diagrams list fields; read them left-aligned like code. */
@@ -265,19 +318,18 @@ body {
   color: #6b7280;
 }
 
-/* Changes: Before | After, each its own version's full diagram. Below the grid's
-   minimum width the comparison scrolls as a whole instead of shrinking. */
-.compare-scroll {
-  overflow-x: auto;
-}
-
+/* Before | After, each its own snapshot's full diagram fitted to its pane. Narrow
+   screens stack After under Before instead of shrinking both. */
 .compare-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  min-width: 1040px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 8px;
+}
+
+.compare-pane {
+  min-width: 0;
 }
 
 .compare-pane + .compare-pane {
@@ -301,7 +353,7 @@ body {
 }
 
 .compare-pane-body {
-  height: max(480px, calc(100vh - 300px));
+  height: max(480px, calc(100vh - 330px));
   overflow: auto;
   padding: 16px;
 }
@@ -359,7 +411,8 @@ body {
 }
 
 .no-change {
-  padding: 16px;
+  margin: 0 0 12px;
+  padding: 8px 12px;
   color: var(--muted);
   background: var(--panel);
   border: 1px dashed var(--border);
@@ -465,18 +518,26 @@ body {
   font-size: 0.85rem;
 }
 
-@media (max-width: 760px) {
-  .layout {
+@media (max-width: 900px) {
+  .compare-grid {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas:
-      'header'
-      'nav'
-      'content';
   }
 
-  .diagram-nav {
-    border-right: none;
-    border-bottom: 1px solid var(--border);
+  .compare-pane + .compare-pane {
+    border-left: none;
+    border-top: 2px solid var(--border);
+  }
+
+  .compare-pane-body {
+    height: 70vh;
+  }
+}
+
+@media (max-width: 760px) {
+  .page-header,
+  .diagram-tabs {
+    padding-left: 16px;
+    padding-right: 16px;
   }
 
   .content {
