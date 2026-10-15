@@ -11,7 +11,7 @@ import { after, before, test } from 'node:test'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { createServer } from 'vite'
-import { changeBadge, compareSnapshots, diffGraphs, sideMermaid } from '../src/review/changes.js'
+import { changeBadge, compareSnapshots, diffGraphs, diffLabelLines, sideMermaid } from '../src/review/changes.js'
 import { parseFlowchart } from '../src/review/flowchart.js'
 
 const viewer = path.resolve(import.meta.dirname, '..')
@@ -115,6 +115,53 @@ test('unchanged nodes carry no diff class or markup', () => {
       assert.doesNotMatch(nodeLine(mermaid, id), /<(ins|del)>/)
     }
   }
+})
+
+// Runtime 05 between develop ac9a0f6 and 0f20f17: one bullet rewritten, the owner line moved to
+// the top. 「생성한 Workflow 전달」 and the owner are on both sides, only crossed in order.
+const MOVED_BEFORE = '<b>05 KRRI_ASAP에 실행 요청</b><br/>• 사용자 도구 범위 확인<br/>• 생성한 Workflow 전달<br/><small>agentic_ai · POST /workflow/execute/stream</small>'
+const MOVED_AFTER = '<b>05 KRRI_ASAP에 실행 요청</b><br/><small>agentic_ai · POST /workflow/execute/stream</small><br/>• MCP Tool 실행 권한 확인<br/>• 생성한 Workflow 전달'
+
+test('a label line that only moved is unchanged; only the rewritten line is del / ins', () => {
+  const { before, after } = diffLabelLines(MOVED_BEFORE, MOVED_AFTER)
+  const marked = (lines, status) => lines.filter((l) => l.status === status).map((l) => l.line)
+  assert.deepEqual(marked(before, 'removed'), ['• 사용자 도구 범위 확인'])
+  assert.deepEqual(marked(after, 'added'), ['• MCP Tool 실행 권한 확인'])
+  // Each side keeps its own line order.
+  assert.deepEqual(before.map((l) => l.line), MOVED_BEFORE.split('<br/>'))
+  assert.deepEqual(after.map((l) => l.line), MOVED_AFTER.split('<br/>'))
+
+  const node = (label) => `flowchart TB\n    EXECUTION_REQUEST["${label}"]\n    X["<b>E X</b>"]\n    EXECUTION_REQUEST --> X\n`
+  const from = diagram(node(MOVED_BEFORE))
+  const to = diagram(node(MOVED_AFTER))
+  const diff = diffGraphs(from.graph, to.graph)
+  const b = nodeLine(sideMermaid(from, diff, 'before'), 'EXECUTION_REQUEST')
+  const a = nodeLine(sideMermaid(to, diff, 'after'), 'EXECUTION_REQUEST')
+  assert.match(b, /<del>• 사용자 도구 범위 확인<\/del>/)
+  assert.match(a, /<ins>• MCP Tool 실행 권한 확인<\/ins>/)
+  for (const [line, text] of [[b, '• 생성한 Workflow 전달'], [a, '• 생성한 Workflow 전달'], [b, 'POST /workflow/execute/stream'], [a, 'POST /workflow/execute/stream']]) {
+    assert.ok(line.includes(text), text)
+    assert.doesNotMatch(line, new RegExp(`<(del|ins)>[^<]*(<small>)?[^<]*${text.replace(/[/.]/g, '\\$&')}`), text)
+  }
+  assert.equal((b.match(/<del>/g) ?? []).length, 1)
+  assert.equal((a.match(/<ins>/g) ?? []).length, 1)
+  assert.equal(diff.changedNodes.length, 1)
+})
+
+test('repeated label lines match by count: only the extra occurrences are del / ins', () => {
+  // Per side: how many lines are same / removed / added.
+  const tally = (before, after) => {
+    const r = diffLabelLines(before, after)
+    const count = (lines) => lines.reduce((t, l) => ({ ...t, [l.status]: (t[l.status] ?? 0) + 1 }), {})
+    return [count(r.before), count(r.after)]
+  }
+  assert.deepEqual(tally('same<br/>same', 'same'), [{ same: 1, removed: 1 }, { same: 1 }])
+  assert.deepEqual(tally('same', 'same<br/>same'), [{ same: 1 }, { same: 1, added: 1 }])
+  // Lines that swapped places are all unchanged.
+  assert.deepEqual(tally('x<br/>y', 'y<br/>x'), [{ same: 2 }, { same: 2 }])
+  // A moved line pairs with one occurrence only; the extra copy is still added.
+  assert.deepEqual(tally('x<br/>y', 'y<br/>x<br/>x'), [{ same: 2 }, { same: 2, added: 1 }])
+  assert.deepEqual(tally('x<br/>y<br/>x', 'y<br/>x'), [{ same: 2, removed: 1 }, { same: 2 }])
 })
 
 test('added edge: path, arrowhead and label green on After', () => {
