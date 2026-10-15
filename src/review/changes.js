@@ -107,9 +107,13 @@ export function visibleText(line) {
   return line.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
 }
 
-// Line diff of two labels by visible text (longest common subsequence), so one
-// inserted line leaves the lines after it unchanged. Returns, per side, each
-// label line with its status: 'same', 'removed' (before only) or 'added' (after only).
+// Line diff of two labels by visible text. A line whose exact visible text is on both
+// sides is unchanged wherever it sits: moving a line is not changing it. Repeated lines
+// match by count (min of the two sides); only the extra copies are removed / added.
+// A longest common subsequence pairs the lines that kept their order first (so among
+// repeated lines the right copy is marked), then each leftover removed line pairs with a
+// leftover added line of the same text. Returns, per side, each label line in its own
+// order with its status: 'same', 'removed' (before only) or 'added' (after only).
 export function diffLabelLines(beforeLabel, afterLabel) {
   const a = beforeLabel.split(LINE_BREAK)
   const b = afterLabel.split(LINE_BREAK)
@@ -133,6 +137,20 @@ export function diffLabelLines(beforeLabel, afterLabel) {
       before.push({ line: a[i++], status: 'removed' })
     } else {
       after.push({ line: b[j++], status: 'added' })
+    }
+  }
+  // Lines that only moved: same text left over on both sides.
+  const removed = new Map()
+  for (const entry of before) {
+    if (entry.status !== 'removed') continue
+    const key = visibleText(entry.line)
+    removed.set(key, [...(removed.get(key) ?? []), entry])
+  }
+  for (const entry of after) {
+    const match = entry.status === 'added' && removed.get(visibleText(entry.line))?.shift()
+    if (match) {
+      match.status = 'same'
+      entry.status = 'same'
     }
   }
   return { before, after }
@@ -246,4 +264,13 @@ export function compareSnapshots(fromVersion, toVersion) {
       return { ...entry, error: `${shown.file}: ${error.message}` }
     }
   })
+}
+
+// The tab badge for one compareSnapshots entry.
+export function changeBadge(entry) {
+  if (entry.error) return { text: 'Error', kind: 'error' }
+  if (!entry.before) return { text: 'New', kind: 'count' }
+  if (!entry.after) return { text: 'Removed', kind: 'count' }
+  if (entry.diff.count > 0) return { text: `${entry.diff.count} ${entry.diff.count === 1 ? 'change' : 'changes'}`, kind: 'count' }
+  return { text: 'No change', kind: 'none' }
 }

@@ -104,7 +104,9 @@ test('the viewer labels both snapshots with the branch and has no PR, fork point
     assert.doesNotMatch(text, /fork point|PR #|prNumber|headBranch|baseBranch|<select|Compare from/, file)
   }
   const app = fs.readFileSync(path.join(viewer, 'src/App.jsx'), 'utf8')
-  assert.match(app, /fromLabel=\{context\.branch\}\s+toLabel=\{local \? 'working tree' : context\.branch\}/)
+  // Public: both sides are the branch. Only the local preview names Before 직전 커밋 / After working tree.
+  assert.match(app, /const beforeLabel = import\.meta\.env\.DEV && local\?\.compare === 'previous-commit' \? '직전 커밋' : context\.branch\n/)
+  assert.match(app, /fromLabel=\{beforeLabel\}\s+toLabel=\{local \? 'working tree' : context\.branch\}/)
 })
 
 // develop rewritten by a force push (only inside this throwaway fixture): the old develop

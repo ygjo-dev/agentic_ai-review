@@ -90,19 +90,31 @@ body {
   font-weight: 600;
 }
 
+/* Local preview only: 비교 기준 select next to the LOCAL PREVIEW badge. */
+.local-compare {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.local-compare select {
+  font: inherit;
+  font-weight: 400;
+  padding: 1px 4px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
 /* Before / After as two aligned rows, the label a fixed column. */
 .review-snapshot {
   display: block;
   padding-left: 64px;
   text-indent: -64px;
   overflow-wrap: anywhere;
-}
-
-.review-snapshot .review-state.local {
-  color: var(--notice);
-  background: var(--notice-bg);
-  border-color: var(--notice);
-  letter-spacing: 0.04em;
 }
 
 .review-snapshot-label {
@@ -125,6 +137,14 @@ body {
 .review-snapshot-label {
   color: var(--text);
   font-weight: 600;
+}
+
+/* LOCAL PREVIEW: the notice colours keep a local page from passing for the public Review. */
+.review-state.local {
+  color: var(--notice);
+  background: var(--notice-bg);
+  border-color: var(--notice);
+  letter-spacing: 0.04em;
 }
 
 .review-none {

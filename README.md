@@ -21,8 +21,9 @@ Feature branch pushes and pull request events do not change it. The build takes 
 checks that After is on develop and Before is either on develop or, after a force push dropped
 it, on no branch at all (fetched by SHA); no pair = baseline. Runtime / Data are tabs; each diagram
 fits its pane (scaled down, never up) and "Actual size" shows it unscaled. The URL only carries the
-diagram (`#runtime_pipeline`). Without a context the dev server shows HEAD, plus
-uncommitted `dev/review` edits as After. A diagram with `presentation: schema` renders as field lists.
+diagram (`#runtime_pipeline`; the local preview adds `?compare=previous-commit`). Without a context
+the dev server shows HEAD, plus uncommitted `dev/review` edits as After. A diagram with
+`presentation: schema` renders as field lists.
 
 Production is a public GitHub Pages site (https://agentic-ai-review.krri.re.kr/; the custom
 domain is set in the repository's Settings > Pages): `.github/workflows/deploy-pages.yml` checks
@@ -37,9 +38,21 @@ Actions secret of this repository, the deploy job posts one message once a pair 
 ```sh
 npm install
 npm run dev     # edits under ../agentic_ai/dev/review reload the page
-npm run review:dev   # local preview on 0.0.0.0:4797: origin/develop vs the agentic_ai working
-                     # tree (uncommitted dev/review included); prints Local / LAN URLs.
+npm run review:dev   # local preview on 0.0.0.0:4797 (see below); prints Local / LAN URLs.
                      # AGENTIC_AI_REPO · REVIEW_BEFORE_REF · REVIEW_DEV_PORT override; dev only
 npm test        # Before/After pair rules on a throwaway git fixture
 npm run build   # fails with a readable error if the Review Source is broken
 ```
+
+Local preview (`npm run review:dev`, never in the public build): After is always the agentic_ai
+working tree as it is on disk (uncommitted `dev/review` included). 「비교 기준」 picks the Before:
+
+- develop 기준 (default): Before = `origin/develop` (`git fetch` refreshes it). Everything the
+  current work changes against develop, as the next develop review will show it.
+- 직전 커밋 기준 (`?compare=previous-commit`): Before = the agentic_ai `HEAD`. Only what changed
+  since the last commit (HEAD → working tree, not HEAD^ → HEAD), so right after a commit it is
+  "No change".
+
+The page switches between the two without a reload; Runtime / Data and Fit width keep the choice.
+If one Before cannot be read (e.g. no `origin/develop` yet), that 비교 기준 shows the error and the
+other still works.
